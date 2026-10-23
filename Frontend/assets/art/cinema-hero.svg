@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" fill="none">
+<defs>
+ <linearGradient id="sky" x1="0" y1="0" x2="1600" y2="720" gradientUnits="userSpaceOnUse"><stop stop-color="#101712"/><stop offset=".55" stop-color="#182b23"/><stop offset="1" stop-color="#07110d"/></linearGradient>
+ <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(1175 345) rotate(90) scale(450 490)" gradientUnits="userSpaceOnUse"><stop stop-color="#7f8450" stop-opacity=".42"/><stop offset="1" stop-color="#132318" stop-opacity="0"/></radialGradient>
+ <linearGradient id="brass" x1="1010" y1="40" x2="1360" y2="650" gradientUnits="userSpaceOnUse"><stop stop-color="#b4a371"/><stop offset=".37" stop-color="#6a7955"/><stop offset=".6" stop-color="#d5bc83"/><stop offset="1" stop-color="#5b5d3b"/></linearGradient>
+ <linearGradient id="lit" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#e9d29a"/><stop offset="1" stop-color="#6e633e"/></linearGradient>
+ <linearGradient id="wall" x1="1010" y1="0" x2="1380" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#283c2c"/><stop offset=".5" stop-color="#576247"/><stop offset="1" stop-color="#24392b"/></linearGradient>
+ <linearGradient id="curtain" x1="1125" y1="400" x2="1260" y2="400" gradientUnits="userSpaceOnUse"><stop stop-color="#33251e"/><stop offset=".2" stop-color="#78523a"/><stop offset=".4" stop-color="#3a2c1e"/><stop offset=".6" stop-color="#815d41"/><stop offset="1" stop-color="#30291c"/></linearGradient>
+ <radialGradient id="lamp"><stop stop-color="#f1db9f"/><stop offset=".2" stop-color="#d8bd77" stop-opacity=".5"/><stop offset="1" stop-color="#dabd73" stop-opacity="0"/></radialGradient>
+ <pattern id="windows" width="34" height="38" patternUnits="userSpaceOnUse"><path d="M12 8h7v14h-7z" fill="#82926c" opacity=".14"/></pattern>
+ <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".65" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".07"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter>
+</defs>
+<g filter="url(#grain)"><path fill="url(#sky)" d="M0 0h1600v720H0z"/><path fill="url(#halo)" d="M500 0h1100v720H500z"/>
+<g opacity=".15" stroke="#c8b173"><path d="m1150 470-500-430m500 430L850 0m300 470L1030 0m120 470L1220 0m-70 470L1430 0m-280 470L1600 80"/><path d="M520 580h1080M710 0v720M1530 0v720" opacity=".3"/></g>
+<g fill="#13231b"><path d="M690 355h70v-81h35v-38h58v484H690z"/><path d="M800 255h80v-50h38v-35h40v550H800z"/><path d="M1430 300h50v-77h45v-35h49v532h-144z"/><path d="M1540 372h60v348h-60z"/></g>
+<path d="M690 355h70v-81h35v-38h58v484H690zM800 255h80v-50h38v-35h40v550H800zM1430 300h50v-77h45v-35h49v532h-144z" fill="url(#windows)"/>
+<g stroke="#a7a474" opacity=".15"><path d="M713 365v253m21-253v253m39-333v350m53-375v385m27-405v405m43-450v450m31-450v450m532-359v359m30-389v389m36-437v437"/></g>
+<path d="M948 196h450v451H948z" fill="#26382a" stroke="#7c8054"/><path d="M967 169h412v479H967z" fill="url(#wall)" stroke="#9c9563"/><path d="M987 148h374v500H987z" fill="#344733" stroke="#a39b6b"/><path d="M1007 129h334v519h-334z" fill="url(#wall)" stroke="#9d986a"/>
+<g stroke="url(#brass)" stroke-width="3"><path d="M1028 642V147h292v495M1043 642V164h262v478M1058 642V181h232v461M1073 642V198h202v444"/></g>
+<path d="M1092 630V331c0-109 164-109 164 0v299z" fill="#1d2c20" stroke="#d7bd7c" stroke-width="2"/>
+<path d="M1105 630V333c0-91 138-91 138 0v297z" fill="#172317" stroke="#8a8d58"/>
+<g stroke="#c5ac71" opacity=".65"><path d="m1174 398-71-65m71 65-64-95m64 95-46-118m46 118-25-132m25 132V260m0 138 25-132m-25 132 46-118m-46 118 64-95m-64 95 69-65"/><path d="M1096 398h157M1096 406h157"/></g>
+<path d="M1117 419h114v190h-114z" fill="url(#curtain)" stroke="#a28e58"/>
+<path d="M1173 419v190m-48-190v190m96-190v190" stroke="#1a2618" stroke-width="6"/><path d="M1127 450h34v125h-34zm58 0h34v125h-34z" fill="#142114" stroke="#8e8c57"/>
+<path d="M1138 564v-8m57 8v-8" stroke="#ddc085" stroke-width="3"/>
+<path d="M1095 391h160v16h-160z" fill="#a8955f"/><path d="M1086 407h178v10h-178z" fill="#d5bb7e"/>
+<text x="1175" y="386" text-anchor="middle" fill="#e0c48b" font-size="14" font-family="Georgia,serif" letter-spacing="6">LE GRAND CINÉMA</text>
+<path d="M1150 57h48v179h-48z" fill="#1d2c20" stroke="#bfaa70" stroke-width="2"/><path d="M1156 64h36v165h-36z" stroke="#89945e"/>
+<g fill="#dcc38c" font-family="Georgia,serif" text-anchor="middle" font-size="22"><text x="1175" y="93">C</text><text x="1175" y="121">I</text><text x="1175" y="149">N</text><text x="1175" y="177">É</text><text x="1175" y="205">M</text></g>
+<path d="m1174 34 5 10 11 2-8 8 2 11-10-5-10 5 2-11-8-8 11-2z" fill="#d9bb75"/>
+<g stroke="#c1a86e"><path d="M1029 300v280m14-280v280m14-280v280m233-280v280m14-280v280m14-280v280" opacity=".6"/><path d="m1036 266 12 16-12 16-12-16zm278 0 12 16-12 16-12-16z" fill="#988b57"/></g>
+<g fill="#17261c" stroke="#84905d"><path d="M983 451h45v139h-45zM1321 451h45v139h-45z"/></g>
+<g fill="#c0ae76"><path d="M989 458h33v3h-33zM1327 458h33v3h-33zM989 581h33v3h-33zM1327 581h33v3h-33z"/></g>
+<g fill="#b4ac7c" text-anchor="middle" font-family="Georgia,serif"><text x="1005" y="490" font-size="7" letter-spacing="1">CLASSIC</text><text x="1005" y="505" font-size="7" letter-spacing="1">PICTURES</text><text x="1343" y="490" font-size="7" letter-spacing="1">UNE</text><text x="1343" y="505" font-size="7" letter-spacing="1">HISTOIRE</text></g>
+<path d="m1004 520 12 22-12 22-12-22zm339 0 12 22-12 22-12-22z" stroke="#a89964"/>
+<g fill="#3c4b31" stroke="#b4a06b"><path d="M1069 609h211v12h-211zM1050 621h249v12h-249zM1031 633h287v12h-287zM1010 645h329v12h-329z"/></g>
+<path d="M0 663h1600v57H0z" fill="#102015"/><path d="M927 658h526m-576 16h626m-730 22h846" stroke="#9e9b6333"/>
+<path d="m1100 659-120 61m267-61 120 61m-185-61 12 61m-330-58-231 58m716-58 160 45" stroke="#65785155"/>
+<g stroke="#c6ae70"><path d="M940 400v250m-3 0h6m-8-250h10m-6-17h2m434 17v250m-3 0h6m-8-250h10m-6-17h2" stroke-width="2"/><path d="m930 379 9-20 9 20-4 20h-10zm434 0 9-20 9 20-4 20h-10z" fill="#c1b074"/></g>
+<circle cx="939" cy="380" r="65" fill="url(#lamp)"/><circle cx="1373" cy="380" r="65" fill="url(#lamp)"/>
+<g opacity=".55" fill="#d9c58d"><circle cx="1014" cy="91" r="1"/><circle cx="1443" cy="91" r="1"/><circle cx="1364" cy="53" r=".8"/><circle cx="880" cy="117" r="1"/><circle cx="1490" cy="146" r=".8"/><circle cx="1230" cy="33" r=".6"/></g>
+</g></svg>

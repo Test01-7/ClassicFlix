@@ -1,0 +1,8 @@
+/.env
+/vendor/
+/var/
+/tools/*.phar
+/tools/composer-cache/
+/tests/.runtime/
+*.log
+

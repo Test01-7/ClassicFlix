@@ -1,0 +1,10 @@
+{
+  "Rules": [
+    {
+      "ID": "ClassicFlixAbortIncompleteMultipart",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "classicflix/"},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 1}
+    }
+  ]
+}

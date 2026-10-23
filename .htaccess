@@ -1,0 +1,3 @@
+# Defensa adicional si Apache apunta por error a la raíz del repositorio.
+# El VirtualHost debe apuntar directamente a Frontend.
+Require all denied

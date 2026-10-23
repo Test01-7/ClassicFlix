@@ -1,0 +1,9 @@
+[
+  {
+    "AllowedOrigins": ["https://cine.ejemplo.com"],
+    "AllowedMethods": ["GET", "HEAD", "PUT"],
+    "AllowedHeaders": ["content-type", "range", "if-none-match", "x-amz-*"],
+    "ExposeHeaders": ["ETag", "Content-Length", "Content-Range", "Accept-Ranges"],
+    "MaxAgeSeconds": 300
+  }
+]

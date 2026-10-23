@@ -1,0 +1,16 @@
+{
+  "name": "classicflix/classicflix",
+  "description": "Cine clásico, PHP por capas y recursos privados en Amazon S3",
+  "type": "project",
+  "require": {
+    "php": "^8.2",
+    "ext-pdo": "*",
+    "ext-fileinfo": "*",
+    "ext-mbstring": "*",
+    "aws/aws-sdk-php": "^3.0",
+    "predis/predis": "^3.0"
+  },
+  "autoload": { "psr-4": { "ClassicFlix\\": "Backend/" } },
+  "scripts": { "test": "php tests/run.php" },
+  "config": { "sort-packages": true }
+}
