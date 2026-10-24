@@ -7,16 +7,43 @@ use ClassicFlix\Application;
 
 final class CatalogService
 {
+    public const CACHE_KEY = 'classicflix:catalog:v2';
     public function __construct(private Application $app) {}
 
-    public function all(string $query = '', ?int $categoryId = null): array
+    public function all(string $query = '', ?int $categoryId = null, ?int $minimumRating = null, string $order = 'recientes'): array
     {
-        $movies = $this->app->cache()->remember('classicflix:catalog:v1',
+        $movies = $this->app->cache()->remember(self::CACHE_KEY,
             fn(): array => $this->app->movies()->all(), (int) $this->app->config()->get('CATALOG_CACHE_TTL', 300));
+        return self::filter($movies, $query, $categoryId, $minimumRating, $order);
+    }
+
+    public static function options(array $input): array
+    {
+        $minimum = $input['valoracion_min'] ?? '';
+        $order = $input['orden'] ?? 'recientes';
+        if ((!is_string($minimum) && !is_int($minimum)) || ($minimum !== '' && !preg_match('/^[1-5]$/D', (string) $minimum)) || !is_string($order) || !in_array($order, ['recientes', 'valoracion'], true)) {
+            throw new \ClassicFlix\Support\HttpException(400, 'Selecciona una valoración mínima y un orden válidos.');
+        }
+        return ['minimum' => $minimum === '' ? null : (int) $minimum, 'order' => $order];
+    }
+
+    public static function filter(array $movies, string $query = '', ?int $categoryId = null, ?int $minimumRating = null, string $order = 'recientes'): array
+    {
         $needle = mb_strtolower($query);
-        return array_values(array_filter($movies, static fn(array $movie): bool =>
+        $movies = array_values(array_filter($movies, static fn(array $movie): bool =>
             ($categoryId === null || (int) $movie['categoria_id'] === $categoryId) &&
+            ($minimumRating === null || ((int) ($movie['valoraciones_total'] ?? 0) > 0 && round((float) $movie['valoracion_media'], 1) >= $minimumRating)) &&
             ($query === '' || str_contains(mb_strtolower($movie['titulo'] . ' ' . ($movie['director'] ?? '') . ' ' . ($movie['actores'] ?? '') . ' ' . ($movie['sinopsis'] ?? '')), $needle))));
+        usort($movies, static function (array $a, array $b) use ($order): int {
+            if ($order === 'valoracion') {
+                $rating = ($b['valoracion_media'] ?? -1) <=> ($a['valoracion_media'] ?? -1);
+                if ($rating !== 0) { return $rating; }
+                $votes = ((int) ($b['valoraciones_total'] ?? 0)) <=> ((int) ($a['valoraciones_total'] ?? 0));
+                if ($votes !== 0) { return $votes; }
+            }
+            return (int) $b['id'] <=> (int) $a['id'];
+        });
+        return $movies;
     }
 
     public function decorate(array $movies, ?array $user = null): array
@@ -33,5 +60,5 @@ final class CatalogService
         }, $movies);
     }
 
-    public function invalidate(): void { $this->app->cache()->forget('classicflix:catalog:v1'); }
+    public function invalidate(): void { $this->app->cache()->forget(self::CACHE_KEY); }
 }

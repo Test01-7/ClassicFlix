@@ -2,6 +2,8 @@
 
 La guía prepara recursos para tu cuenta; el código no crea buckets, instancias ni servicios administrados. Sustituye `BUCKET_ELEGIDO`, `https://cine.ejemplo.com` y las rutas de ejemplo antes de aplicar plantillas.
 
+Para configurar todo desde una EC2 Ubuntu existente, sigue la [guía paso a paso con RDS y ElastiCache](despliegue-ubuntu-rds.md).
+
 ## Bucket y permisos
 
 1. Crea el bucket en `AWS_REGION` y conserva **Block Public Access** activado por completo.

@@ -139,7 +139,7 @@ final class UploadService
             ]);
             $this->uploads->setState($id, 'completada');
             $this->pdo->commit();
-            $this->cache->forget('classicflix:catalog:v1');
+            $this->cache->forget(CatalogService::CACHE_KEY);
             if ($oldKey !== null && $oldKey !== $upload['clave_s3']) {
                 try { $this->storage->delete($oldKey); } catch (\Throwable) { error_log('ClassicFlix: no se pudo retirar un recurso S3 reemplazado.'); }
             }
@@ -150,7 +150,7 @@ final class UploadService
             try {
                 $current = $this->uploads->find($id);
                 if (($current['estado'] ?? '') === 'completada') {
-                    $this->cache->forget('classicflix:catalog:v1');
+                    $this->cache->forget(CatalogService::CACHE_KEY);
                     return ['completed' => true, 'pelicula_id' => (int) $upload['pelicula_id']];
                 }
                 $this->cleanupDetached($upload);

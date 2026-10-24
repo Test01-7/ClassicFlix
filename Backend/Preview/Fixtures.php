@@ -17,11 +17,14 @@ final class Fixtures
             [6, 'Bajo la misma luna', 1936, 4, 'Romance', 'Mateo Alcázar', 'Elisa Marín, Víctor Campos', 'Dos desconocidos se encuentran cada noche en una estación costera. Unidos por una promesa y separados por sus propios planes, descubren que hay historias que solo se entienden mirando el mismo cielo.', 5760, 122, 'luna'],
         ];
         return array_map(static function (array $row): array {
+            $reviews = self::reviews($row[0]);
+            $ratings = array_values(array_filter(array_column($reviews, 'valoracion'), static fn($value): bool => $value !== null));
             return [
                 'id' => $row[0], 'titulo' => $row[1], 'fechalanzamiento' => $row[2], 'categoria_id' => $row[3], 'categoria' => $row[4], 'genero' => $row[4],
                 'director' => $row[5], 'actores' => $row[6], 'sinopsis' => $row[7], 'duracion' => $row[8], 'trailer_duracion' => $row[9],
                 'poster_url' => \asset('art/poster-' . $row[10] . '.svg'), 'has_poster' => true, 'has_trailer' => true, 'has_movie' => $row[0] !== 5,
                 'estado' => $row[0] === 5 ? 'borrador' : 'publicado', 'is_favorite' => in_array($row[0], [1, 4, 6], true),
+                'valoracion_media' => $ratings ? round(array_sum($ratings) / count($ratings), 1) : null, 'valoraciones_total' => count($ratings),
             ];
         }, $items);
     }
@@ -29,6 +32,15 @@ final class Fixtures
     public static function categories(): array
     {
         return [['id' => 1, 'nombre' => 'Drama'], ['id' => 2, 'nombre' => 'Ciencia ficción'], ['id' => 3, 'nombre' => 'Misterio'], ['id' => 4, 'nombre' => 'Romance']];
+    }
+
+    public static function reviews(int $movieId): array
+    {
+        $scores = [1 => [5, 4, 4], 2 => [5, 5, 4, 5], 3 => [3, 4], 4 => [4, 4], 5 => [], 6 => [5, 5, 5]][$movieId] ?? [];
+        $names = ['Lucía Torres', 'Andrés Robles', 'Marina Vega', 'Gabriel Ríos'];
+        $texts = ['Una historia que se queda contigo mucho después de la última escena. Me encantó la atmósfera y la delicadeza de sus personajes.', 'La fotografía y la música acompañan muy bien el relato. Una mirada distinta a las historias de siempre.', 'Una buena elección para una tarde de cine. Hay detalles que invitan a volver a verla.', 'Un clásico imaginario con mucho encanto. Esta opinión es parte de la muestra de ClassicFlix.'];
+        return array_map(static fn(int $score, int $i): array => ['id' => $movieId * 10 + $i, 'autor' => $names[$i], 'valoracion' => $score,
+            'resena' => $texts[$i], 'fecha' => '2026-10-' . (20 - $i) . ' 18:00:00', 'actualizado_en' => null], $scores, array_keys($scores));
     }
 
     public static function user(): array

@@ -66,7 +66,32 @@ Admite MP4 preparado para HTML5 (H.264 y audio AAC cuando exista) y portadas JPE
 
 Internet Archive y PDM permiten seleccionar archivos, pero su aparición allí no verifica automáticamente los derechos. Conserva la referencia de la versión elegida y revisa por separado música, subtítulos y portada.
 
-## Arquitectura
+## Reseñas y valoración del público
+
+Cualquier cuenta registrada puede escribir una reseña y elegir de 1 a 5 estrellas para una película publicada, sin necesitar historial de reproducción. Cada cuenta tiene una opinión por película y puede editarla o eliminarla. Las reseñas son texto sin HTML, obligatorio y de hasta 2000 caracteres. Los visitantes ven el nombre público del autor, el texto, la fecha y las estrellas; no ven su correo.
+
+En el panel, **Moderar reseñas** muestra una tabla con las opiniones más recientes de todas las películas, diez por página, y un buscador por nombre público del autor o palabras del texto. Un administrador puede retirar una opinión inapropiada después de confirmar la eliminación; se borran el texto y sus estrellas y se actualiza el promedio público. La búsqueda y página se conservan tras borrar. También puede moderar títulos devueltos a borrador. La acción exige sesión administrativa y CSRF; la muestra la mantiene desactivada. No requiere otra migración.
+
+## Páginas del administrador
+
+El menú abre páginas independientes y señala la sección actual. En celular y pantallas horizontales bajas se convierte en un menú compacto que permanece accesible al desplazarse.
+
+| Página | Uso |
+|---|---|
+| `/admin` | Resumen y accesos a las tareas. |
+| `/admin/peliculas` | Tabla con búsqueda por título; veinte películas por página, incluidos borradores. |
+| `/admin/nuevo` | Registro de los datos iniciales. |
+| `/admin/editar` | Edición de datos y regreso a la búsqueda de películas; requiere `id`. |
+| `/admin/archivos` | Portada y videos de la película elegida; requiere `id`. |
+| `/admin/resenas` | Tabla de moderación con búsqueda por autor o texto. |
+
+Se accede mediante `index.php?r=…`; el identificador se añade como parámetro `id`. Los datos y archivos tienen pestañas propias. Las tablas se desplazan dentro de su área en pantallas estrechas y admiten teclado. La muestra reproduce las mismas páginas y búsquedas, con escrituras desactivadas.
+
+Las tarjetas y fichas muestran el promedio con un decimal y el número de valoraciones. El catálogo permite combinar búsqueda, género, valoración mínima y orden por mejor valoradas. El mínimo se aplica al promedio mostrado; los empates se resuelven por cantidad de votos y luego por incorporación más reciente. Sin votos se muestra «Sin valoraciones» y el título se excluye al seleccionar un mínimo.
+
+Para actualizar una instalación existente, haz una copia de seguridad y ejecuta `php scripts/console.php migrate` antes de abrir las páginas nuevas. Las reseñas anteriores conservan su texto y fecha, sin estrellas inventadas. Si existen dos reseñas de la misma cuenta para la misma película, la migración se detiene con un diagnóstico antes de cambiar datos. La columna histórica `calificacion` no se utiliza para calcular las valoraciones del público.
+
+## Arquitectura por capas
 
 - `Frontend`: punto de entrada y recursos públicos.
 - `Backend/Views` y `Backend/Controllers`: presentación y control de solicitudes.
@@ -89,14 +114,17 @@ La comprobación informa de MySQL, Redis y S3 sin imprimir secretos. Redis desha
 
 Consulta [instalación y migración](docs/instalacion.md), [S3 y EC2](docs/aws.md) y [pruebas de aceptación](docs/aceptacion.md). Las pruebas locales con dobles de servicios o SQLite no acreditan permisos ni reproducción contra AWS real.
 
+Para partir de tu instancia Ubuntu y usar servicios administrados, sigue [despliegue paso a paso con RDS y ElastiCache](docs/despliegue-ubuntu-rds.md).
+
 ## Pruebas locales
 
 ```powershell
 php tests/run.php
 php scripts/test-repositories.php
 php tests/storage.php
+php tests/reviews.php
 ```
 
-`tests/run.php` reúne las tres suites locales: repositorios, almacenamiento/caché y flujos HTTP con sesiones. Las otras dos órdenes permiten ejecutarlas por separado. La suite HTTP comprueba registro, autenticación, permisos, publicación, favoritos, historial y vista previa; usa su propia base SQLite y servidores locales temporales.
+`tests/run.php` reúne cuatro suites locales: repositorios, reseñas/valoraciones, almacenamiento/caché y flujos HTTP con sesiones. Las demás órdenes permiten ejecutarlas por separado. La suite HTTP comprueba registro, autenticación, permisos, publicación, favoritos, historial, opiniones, filtros y vista previa; usa su propia base SQLite y servidores locales temporales. `php tests/run.php --mysql` añade las pruebas contra la instancia MariaDB desechable descrita a continuación; necesita que esa instancia esté iniciada.
 
 La prueba de repositorios usa SQLite en memoria y no lee credenciales de `.env`. La prueba de almacenamiento usa dobles controlados de S3/Redis. `scripts/test-mysql.php` está restringido a un servidor desechable en `127.0.0.1:33317` cuyo datadir sea exactamente `var/mysql-test`; verifica ese dato antes de escribir y no se conecta a tu instalación normal. Consulta [el registro de verificación](docs/verificacion.md) para distinguir lo probado de lo pendiente.

@@ -177,6 +177,60 @@ try {
     $assert($newCsrf !== $csrf, 'Authentication rotates CSRF token');
     $assert($guest->request('GET', '/admin')['status'] === 403 && $guest->request('POST', '/admin/guardar', [], ['_token' => $newCsrf])['status'] === 403, 'Non-admin cannot read or modify admin');
     $assert($guest->request('POST', '/upload/iniciar', [], ['_token' => $newCsrf])['status'] === 403, 'Non-admin cannot request upload authorization');
+    // Reviews are independent of watching a video; all ownership comes from the session.
+    $anonymous = new HttpTestClient($base);
+    $assert($anonymous->request('POST', '/resenas/guardar', [], ['pelicula_id' => $filmId])['status'] === 401, 'Guest cannot create reviews');
+    $assert($anonymous->request('POST', '/resenas/eliminar', [], ['pelicula_id' => $filmId])['status'] === 401, 'Guest cannot delete reviews');
+    $assert($anonymous->request('GET', '/resenas/guardar')['status'] === 405, 'Review writes require POST');
+    $assert(str_contains($anonymous->request('GET', '/detalle', ['id' => $filmId])['body'], 'Sin valoraciones'), 'No votes are shown as unrated');
+    $reviewData = ['_token' => $newCsrf, 'pelicula_id' => $filmId, 'resena' => '<script>alert("review")</script> Mi reseña.', 'valoracion' => '4', 'usuario_id' => $secondId];
+    $assert($guest->request('POST', '/resenas/guardar', [], array_replace($reviewData, ['_token' => 'invalid']))['status'] === 419, 'Review creation requires CSRF');
+    foreach ([['valoracion' => '0'], ['valoracion' => '6'], ['valoracion' => '4.5'], ['valoracion' => ['5']], ['resena' => '  '], ['resena' => str_repeat('á', 2001)]] as $bad) {
+        $invalidReview = $guest->request('POST', '/resenas/guardar', [], array_replace($reviewData, $bad));
+        $assert($invalidReview['status'] === 422 && str_contains($invalidReview['body'], 'role="alert"'), 'Invalid review renders errors at detail');
+    }
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM Resenas')->fetchColumn() === 0, 'Invalid requests do not persist reviews');
+    $assert($guest->request('POST', '/resenas/guardar', [], array_replace($reviewData, ['pelicula_id' => $draftId]))['status'] === 404, 'Draft cannot receive reviews');
+    $savedReview = $guest->request('POST', '/resenas/guardar', [], $reviewData);
+    $assert($savedReview['status'] === 303 && (HttpTestClient::location($savedReview)['r'] ?? '') === '/detalle', 'Review redirects back to film');
+    $ownerId = (int) $pdo->query('SELECT usuario_id FROM Resenas')->fetchColumn();
+    $assert($ownerId === (int) $newUser['id'], 'Submitted author ID cannot impersonate another user');
+    $assert(count($movies->history((int) $newUser['id'])) === 0, 'A review can be posted without playback history');
+    $publicReviews = $anonymous->request('GET', '/detalle', ['id' => $filmId]);
+    $assert(str_contains($publicReviews['body'], 'Espectadora Nueva') && str_contains($publicReviews['body'], '&lt;script&gt;') && !str_contains($publicReviews['body'], '<script>alert("review")'), 'Public reviews escape HTML and show author name');
+    $assert(!str_contains($publicReviews['body'], 'nueva@example.test') && !str_contains($publicReviews['body'], 'other@example.test'), 'Public responses do not expose author email');
+    $assert(str_contains($publicReviews['body'], 'next=%2Fdetalle%3Fid%3D' . $filmId), 'Guest review CTA returns to the film after login');
+    $ownDetail = $guest->request('GET', '/detalle', ['id' => $filmId]);
+    $assert(str_contains($ownDetail['body'], 'Actualizar mi opinión') && str_contains($ownDetail['body'], 'Eliminar mi reseña'), 'Author can edit and delete own opinion');
+    $other = new HttpTestClient($base);
+    $otherLogin = $other->request('GET', '/login');
+    $other->request('POST', '/login', [], ['_token' => HttpTestClient::token($otherLogin), 'email' => 'other@example.test', 'password' => 'OtherPassword123']);
+    $otherCsrf = HttpTestClient::token($other->request('GET', '/detalle', ['id' => $filmId]));
+    $otherData = ['_token' => $otherCsrf, 'pelicula_id' => $filmId, 'valoracion' => '2', 'resena' => 'Una segunda opinión.', 'usuario_id' => $newUser['id'], 'id' => 1];
+    $assert($other->request('POST', '/resenas/guardar', [], $otherData)['status'] === 303 && (int) $pdo->query('SELECT COUNT(*) FROM Resenas')->fetchColumn() === 2, 'Second user creates own vote instead of editing submitted review ID');
+    $assert($movies->find($filmId)['valoracion_media'] === 3.0 && $movies->find($filmId)['valoraciones_total'] === 2, 'Mean is computed from public votes');
+    $assert($other->request('POST', '/resenas/eliminar', [], $otherData)['status'] === 303 && (int) $pdo->query('SELECT usuario_id FROM Resenas')->fetchColumn() === (int) $newUser['id'], 'Forged deletion removes only current user review');
+    $assert($other->request('POST', '/resenas/eliminar', [], $otherData)['status'] === 404, 'User cannot delete remaining opinion of another author');
+    $assert($guest->request('POST', '/resenas/eliminar', [], array_replace($reviewData, ['_token' => 'invalid']))['status'] === 419, 'Deleting a review requires CSRF');
+    $guest->request('POST', '/resenas/guardar', [], array_replace($reviewData, ['valoracion' => '5']));
+    $other->request('POST', '/resenas/guardar', [], array_replace($otherData, ['valoracion' => '5']));
+    $other->request('POST', '/resenas/guardar', [], array_replace($otherData, ['pelicula_id' => $otherFilmId, 'valoracion' => '4']));
+    $assert((int) $pdo->query('SELECT COUNT(*) FROM Resenas')->fetchColumn() === 3, 'Repeated save updates one opinion per film and user');
+    $best = $anonymous->request('GET', '/catalogo', ['orden' => 'valoracion']);
+    $assert($best['status'] === 200 && strpos($best['body'], 'Fixture Ámbar') < strpos($best['body'], 'Fixture Niebla'), 'Public catalog can sort by highest average');
+    $high = $anonymous->request('GET', '/catalogo', ['valoracion_min' => '5']);
+    $assert(str_contains($high['body'], 'Fixture Ámbar') && !str_contains($high['body'], 'Fixture Niebla'), 'Rating minimum excludes lower-rated film');
+    $combined = $anonymous->request('GET', '/catalogo', ['q' => 'Fixture', 'categoria' => $categories['Comedia'], 'valoracion_min' => '4', 'orden' => 'valoracion']);
+    $assert(str_contains($combined['body'], 'Fixture Niebla') && !str_contains($combined['body'], 'Fixture Ámbar'), 'Minimum, category, query and rating order compose over HTTP');
+    $assert(str_contains($combined['body'], 'valoracion_min=4&amp;orden=valoracion'), 'Category tabs preserve rating and order');
+    foreach ([['valoracion_min' => '6'], ['valoracion_min' => ['4']], ['orden' => 'sql-injection']] as $bad) {
+        $assert($anonymous->request('GET', '/catalogo', $bad)['status'] === 400, 'Invalid rating filter rejected');
+    }
+    $guest->request('POST', '/resenas/eliminar', [], $reviewData);
+    $other->request('POST', '/resenas/eliminar', [], $otherData);
+    $assert($movies->find($filmId)['valoracion_media'] === null && $movies->find($filmId)['valoraciones_total'] === 0, 'Removing all votes clears aggregate');
+    $emptyRating = $anonymous->request('GET', '/catalogo', ['valoracion_min' => '5']);
+    $assert(str_contains($emptyRating['body'], 'Prueba con otra búsqueda, categoría o valoración mínima.') && !str_contains($emptyRating['body'], 'El catálogo aparecerá aquí'), 'Empty rating filter explains no matching results rather than an unconfigured catalog');
     $beforeFavorite = (int) $pdo->query('SELECT COUNT(*) FROM Favoritos')->fetchColumn();
     $assert($guest->request('POST', '/favoritos', [], ['_token' => $csrf, 'pelicula_id' => $filmId])['status'] === 419, 'Stale CSRF cannot mutate favorite');
     $assert((int) $pdo->query('SELECT COUNT(*) FROM Favoritos')->fetchColumn() === $beforeFavorite, 'Failed CSRF does not persist favorite');
@@ -214,7 +268,12 @@ try {
     $adminPage = $admin->request('GET', '/login');
     $adminLogin = $admin->request('POST', '/login', [], ['_token' => HttpTestClient::token($adminPage), 'email' => 'admin@example.test', 'password' => 'AdminPassword123', 'next' => '/admin']);
     $assert($adminLogin['status'] === 303, 'Admin can authenticate');
-    $adminPanel = $admin->request('GET', '/admin');
+    $overview = $admin->request('GET', '/admin');
+    $assert($overview['status'] === 200 && !str_contains($overview['body'], '<table') && !str_contains($overview['body'], 'id="contenido-form"'), 'Overview only shows summary and links');
+    foreach (['/admin/peliculas', '/admin/resenas', '/admin/nuevo', '/admin/archivos'] as $route) {
+        $assert($other->request('GET', $route)['status'] === 403 && $anonymous->request('GET', $route)['status'] === 303, 'Every admin page is protected');
+    }
+    $adminPanel = $admin->request('GET', '/admin/peliculas');
     $assert($adminPanel['status'] === 200 && str_contains($adminPanel['body'], 'Fixture Borrador Oculto'), 'Admin sees real published and draft content');
     $adminCsrf = HttpTestClient::token($adminPanel);
     $adminData = ['_token' => $adminCsrf, 'titulo' => 'Fixture Admin Nueva', 'fechalanzamiento' => '1935', 'categoria_id' => (string) $categories['Drama'], 'sinopsis' => 'Una nueva sinopsis válida para crear un borrador.', 'duracion' => '5400', 'trailer_duracion' => '120', 'estado' => 'publicado'];
@@ -225,13 +284,61 @@ try {
     $savedId = (int) (HttpTestClient::location($saved)['id'] ?? 0);
     $assert($movies->find($savedId, false) !== null && $movies->find($savedId) === null, 'New draft remains absent from public catalog');
     $assert($admin->request('GET', '/admin/editar', ['id' => $savedId])['status'] === 200, 'Admin asset editor renders saved draft');
+    $filteredMovies = $admin->request('GET', '/admin/peliculas', ['q' => 'Niebla']);
+    $assert(str_contains($filteredMovies['body'], 'Fixture Niebla') && !str_contains($filteredMovies['body'], 'Fixture Ámbar') && !str_contains($filteredMovies['body'], 'id="contenido-form"'), 'Movie page searches titles without rendering editor');
+    $editorPage = $admin->request('GET', '/admin/editar', ['id' => $savedId, 'q' => 'Nueva', 'pagina' => 2]);
+    $assert(str_contains($editorPage['body'], 'q=Nueva&amp;pagina=2') && !str_contains($editorPage['body'], 'data-upload-form'), 'Editor preserves list context and separates uploads');
+    $assert(str_contains($admin->request('GET', '/admin/archivos', ['id' => $savedId])['body'], 'data-upload-form'), 'Files have a dedicated page');
+    $assert(str_contains($admin->request('GET', '/admin/nuevo')['body'], 'id="contenido-form"'), 'New content has a dedicated page');
+    $assert((HttpTestClient::location($admin->request('GET', '/admin', ['id' => $savedId]))['r'] ?? '') === '/admin/editar', 'Legacy admin movie link redirects to editor');
+    $assert($admin->request('GET', '/admin/peliculas', ['q' => ['bad']])['status'] === 400 && $admin->request('GET', '/admin/resenas', ['q' => str_repeat('x', 121)])['status'] === 400, 'Admin searches reject invalid inputs');
     $assert($admin->request('POST', '/admin/guardar', [], ['id' => $savedId, 'titulo' => 'Tampered'])['status'] === 419, 'Admin modifications require CSRF');
+    $publicReviewRepo = new ClassicFlix\Repositories\ReviewRepository($pdo);
+    for ($i = 0; $i < 11; $i++) {
+        $reviewer = $users->create('Lector ' . $i, 'reader' . $i . '@example.test', 'unused-test-hash');
+        $publicReviewRepo->saveOwn($reviewer, $filmId, 'Opinión numerada ' . $i, 4);
+    }
+    $firstReviewPage = $anonymous->request('GET', '/detalle', ['id' => $filmId]);
+    $secondReviewPage = $anonymous->request('GET', '/detalle', ['id' => $filmId, 'resenas_pagina' => '2']);
+    $assert(substr_count($firstReviewPage['body'], 'class="review-entry"') === 10 && substr_count($secondReviewPage['body'], 'class="review-entry"') === 1, 'HTTP pagination displays ten reviews per page');
+    $assert(str_contains($firstReviewPage['body'], 'resenas_pagina=2#resenas') && str_contains($secondReviewPage['body'], 'Página 2 de 2'), 'Review pagination links and state');
+    $assert(!str_contains($secondReviewPage['body'], '@example.test'), 'Paginated reviews do not expose emails');
+    $assert($anonymous->request('GET', '/detalle', ['id' => $filmId, 'resenas_pagina' => ['2']])['status'] === 400, 'Invalid review page rejected');
+    $moderatedId = (int) $publicReviewRepo->moderationPage()['items'][0]['id'];
+    $moderationData = ['_token' => $adminCsrf, 'resena_id' => $moderatedId, 'resenas_pagina' => 2, 'q' => 'Opinión'];
+    $assert($anonymous->request('POST', '/admin/resenas/eliminar', [], $moderationData)['status'] === 401, 'Guest cannot moderate reviews');
+    $assert($other->request('POST', '/admin/resenas/eliminar', [], array_replace($moderationData, ['_token' => $otherCsrf]))['status'] === 403, 'Regular account cannot moderate by direct request');
+    $assert($admin->request('GET', '/admin/resenas/eliminar')['status'] === 405, 'Moderation requires POST');
+    $assert($admin->request('POST', '/admin/resenas/eliminar', [], array_replace($moderationData, ['_token' => 'invalid']))['status'] === 419, 'Moderation requires CSRF');
+    $assert($admin->request('POST', '/admin/resenas/eliminar', [], array_replace($moderationData, ['resena_id' => ['1']]))['status'] === 400, 'Invalid moderation identifier rejected');
+    $moderationPage = $admin->request('GET', '/admin/resenas', ['resenas_pagina' => 2]);
+    $assert($moderationPage['status'] === 200 && substr_count($moderationPage['body'], 'class="moderation-row"') === 2 && str_contains($moderationPage['body'], 'Confirmar eliminación') && !str_contains($moderationPage['body'], 'id="contenido-form"'), 'Review table is paginated on its own page with confirmation');
+    $byAuthor = $admin->request('GET', '/admin/resenas', ['q' => 'Lector 10']);
+    $assert(substr_count($byAuthor['body'], 'class="moderation-row"') === 1 && str_contains($byAuthor['body'], 'Opinión numerada 10'), 'Moderation searches public author names');
+    $byWord = $admin->request('GET', '/admin/resenas', ['q' => 'numerada']);
+    $assert(substr_count($byWord['body'], 'class="moderation-row"') === 10 && str_contains($byWord['body'], 'q=numerada&amp;resenas_pagina=2'), 'Moderation text search survives pagination');
+    $assert(!str_contains($byWord['body'], '@example.test'), 'Moderation does not expose email addresses');
+    $assert($admin->request('GET', '/admin/resenas', ['resenas_pagina' => ['1']])['status'] === 400, 'Invalid moderation page rejected');
+    $beforeModeration = $movies->find($filmId)['valoraciones_total'];
+    $moderated = $admin->request('POST', '/admin/resenas/eliminar', [], $moderationData);
+    $assert($moderated['status'] === 303 && (HttpTestClient::location($moderated)['r'] ?? '') === '/admin/resenas' && (HttpTestClient::location($moderated)['resenas_pagina'] ?? '') === '2' && (HttpTestClient::location($moderated)['q'] ?? '') === 'Opinión', 'Admin deletion preserves search and moderation page');
+    $assert($movies->find($filmId)['valoraciones_total'] === $beforeModeration - 1, 'Admin deletion removes its vote from public aggregate');
+    $assert($admin->request('POST', '/admin/resenas/eliminar', [], $moderationData)['status'] === 404, 'Moderation cannot delete nonexistent review');
+    $lastModerationPage = $admin->request('GET', '/admin/resenas', ['resenas_pagina' => 2]);
+    $assert(str_contains($lastModerationPage['body'], 'Página 2 de 2'), 'Pagination remains usable after deletion');
     foreach (['login', 'registro', 'catalogo', 'detalle', 'reproducir', 'admin', 'favoritos', 'historial'] as $screen) {
         $preview = $dupe->request('GET', '/preview', ['screen' => $screen]);
         $assert($preview['status'] === 200 && str_contains($preview['body'], 'Vista de muestra'), 'Preview screen renders: ' . $screen);
-        if (in_array($screen, ['login', 'registro', 'admin'], true)) { $assert(str_contains($preview['body'], '<fieldset disabled'), 'Preview forms disabled: ' . $screen); }
+        if (in_array($screen, ['login', 'registro'], true)) { $assert(str_contains($preview['body'], '<fieldset disabled'), 'Preview forms disabled: ' . $screen); }
         if ($screen === 'reproducir') { $assert(!str_contains($preview['body'], 'data-player '), 'Preview player makes no media requests'); }
     }
+    foreach (['resumen', 'peliculas', 'nuevo', 'editar', 'archivos', 'resenas'] as $panel) {
+        $sample = $dupe->request('GET', '/preview', ['screen' => 'admin', 'panel' => $panel]);
+        $assert($sample['status'] === 200 && str_contains($sample['body'], 'Vista de muestra'), 'Preview supports independent admin page: ' . $panel);
+        if (in_array($panel, ['nuevo', 'editar', 'archivos', 'resenas'], true)) { $assert(str_contains($sample['body'], '<fieldset disabled'), 'Admin preview writes remain disabled: ' . $panel); }
+    }
+    $sampleSearch = $dupe->request('GET', '/preview', ['screen' => 'admin', 'panel' => 'resenas', 'q' => 'Lucía']);
+    $assert(substr_count($sampleSearch['body'], 'class="moderation-row"') === 5 && !str_contains($sampleSearch['body'], 'Andrés Robles'), 'Preview moderation applies author search');
     $before = [$users->count(), $movies->stats()['peliculas']];
     $assert($dupe->request('POST', '/preview', ['screen' => 'registro'], ['nombre' => 'Unsafe preview'])['status'] === 405, 'Preview rejects POST');
     $assert($before === [$users->count(), $movies->stats()['peliculas']], 'Preview mutation did not change authoritative data');

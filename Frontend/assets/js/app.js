@@ -40,6 +40,16 @@ document.querySelectorAll('img[data-fallback]').forEach((image) => {
 });
 
 const confirmation = document.getElementById('password_confirmation');
+const adminMenu = document.querySelector('.admin-mobile-menu');
+if (adminMenu) {
+    adminMenu.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && adminMenu.open) {
+            adminMenu.open = false;
+            adminMenu.querySelector('summary').focus();
+        }
+    });
+}
+
 const password = document.getElementById('password');
 if (confirmation && password) {
     const check = () => confirmation.setCustomValidity(confirmation.value && confirmation.value !== password.value ? 'Las contraseñas deben coincidir.' : '');

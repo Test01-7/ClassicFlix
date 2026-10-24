@@ -37,7 +37,15 @@ Si la cuenta MySQL solo tiene permisos sobre una base existente, usa `migrate`. 
 
 La migración crea tablas faltantes y agrega columnas/índices; no elimina usuarios, películas, favoritos, vistas ni reseñas. Es repetible. Si hay favoritos duplicados, se detiene antes de cambiar el esquema y señala los identificadores; resuelve los duplicados manualmente con respaldo disponible y repite. MySQL hace commits implícitos en DDL: ante un fallo, conserva los cambios aditivos realizados y puedes repetir una vez corregida la causa.
 
-Las instalaciones nuevas ya no crean la columna `imagen` ni la tabla `Resenas`: las portadas viven en `Recursos`/S3 y las reseñas no forman parte de esta versión. En una base anterior que ya las tenga, la migración las deja intactas y **no transforma `imagen` en una ruta S3 confiable**. Las películas previas quedan en borrador hasta cargar y verificar portada y tráiler. Los valores anteriores de `duracion` no se multiplican automáticamente: si guardabas minutos, corrígelos al editar. Se conservan géneros y se vinculan a categorías.
+Las instalaciones nuevas no crean la columna `imagen`: las portadas viven en `Recursos`/S3. En una base anterior que ya la tenga, la migración la deja intacta y **no transforma `imagen` en una ruta S3 confiable**. Las películas previas quedan en borrador hasta cargar y verificar portada y tráiler. Los valores anteriores de `duracion` no se multiplican automáticamente: si guardabas minutos, corrígelos al editar. Se conservan géneros y se vinculan a categorías.
+
+### Incorporar reseñas y valoraciones
+
+La migración `002_resenas_y_valoraciones` crea `Resenas` si no existe y agrega `valoracion` y `actualizado_en` a una tabla anterior. Ejecuta `php scripts/console.php migrate` antes de usar esta ampliación. Es repetible y no borra opiniones, usuarios ni contenidos.
+
+Las reseñas anteriores conservan texto y fecha y quedan con puntuación nula hasta que su autor elija sus estrellas al editar. No participan en el promedio mientras no tengan voto. La columna histórica `Peliculas.calificacion` se conserva, pero el promedio público procede exclusivamente de las valoraciones en `Resenas`.
+
+Solo se admite una opinión por usuario y película. Si existen duplicados anteriores, el diagnóstico identifica la pareja afectada y la migración se detiene antes de modificar el esquema; revisa y resuelve esos datos explícitamente con una copia de seguridad disponible. No se elige ni se elimina automáticamente ninguna reseña.
 
 Contraseñas antiguas en texto plano no se convierten ni se aceptan como hashes. Crea un administrador nuevo por consola y registra cuentas nuevas si fuera necesario; no hay accesos especiales ni contraseñas predeterminadas.
 

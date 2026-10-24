@@ -12,11 +12,11 @@ final class Migrator
 
     public function migrate(): void
     {
+        $this->preflight();
         if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
             $this->sqlite();
             return;
         }
-        $this->preflight();
         $sql = file_get_contents($this->root . '/BaseDatos.sql');
         if ($sql === false) {
             throw new RuntimeException('No se encontró BaseDatos.sql.');
@@ -44,6 +44,9 @@ final class Migrator
         $this->add('Vistas', 'playback_token', 'VARCHAR(64) NULL');
         $this->unique('Favoritos', 'uq_favorito', ['usuario_id', 'pelicula_id']);
         $this->unique('Vistas', 'uq_vista_token', ['usuario_id', 'playback_token']);
+        $this->add('Resenas', 'valoracion', 'TINYINT UNSIGNED NULL');
+        $this->add('Resenas', 'actualizado_en', 'DATETIME NULL');
+        $this->unique('Resenas', 'uq_resena_usuario_pelicula', ['usuario_id', 'pelicula_id']);
         $fk = $this->pdo->prepare("SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Peliculas' AND COLUMN_NAME = 'categoria_id' AND REFERENCED_TABLE_NAME = 'Categorias'");
         $fk->execute();
         if ((int) $fk->fetchColumn() === 0) {
@@ -52,10 +55,17 @@ final class Migrator
         $this->seedCategories();
         $this->pdo->exec('CREATE TABLE IF NOT EXISTS Migraciones (version VARCHAR(50) PRIMARY KEY, aplicada_en DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB');
         $this->pdo->exec("INSERT IGNORE INTO Migraciones (version) VALUES ('001_capas_y_recursos')");
+        $this->pdo->exec("INSERT IGNORE INTO Migraciones (version) VALUES ('002_resenas_y_valoraciones')");
     }
 
     private function preflight(): void
     {
+        if ($this->exists('Resenas')) {
+            $duplicates = $this->pdo->query('SELECT usuario_id, pelicula_id, COUNT(*) AS cantidad FROM Resenas GROUP BY usuario_id, pelicula_id HAVING COUNT(*) > 1 LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+            if ($duplicates) {
+                throw new RuntimeException('Hay reseñas duplicadas (usuario ' . $duplicates['usuario_id'] . ', película ' . $duplicates['pelicula_id'] . '). Haz una copia de seguridad y resuelve los duplicados antes de migrar; no se eliminó ninguna opinión.');
+            }
+        }
         if ($this->exists('Favoritos')) {
             $duplicates = $this->pdo->query('SELECT usuario_id, pelicula_id, COUNT(*) AS cantidad FROM Favoritos GROUP BY usuario_id, pelicula_id HAVING COUNT(*) > 1 LIMIT 1')->fetch(PDO::FETCH_ASSOC);
             if ($duplicates) {
@@ -66,6 +76,11 @@ final class Migrator
 
     private function exists(string $table): bool
     {
+        if ($this->pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+            $query = $this->pdo->prepare("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?");
+            $query->execute([$table]);
+            return (int) $query->fetchColumn() > 0;
+        }
         $query = $this->pdo->prepare('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?');
         $query->execute([$table]);
         return (int) $query->fetchColumn() > 0;
@@ -127,9 +142,15 @@ CREATE TABLE IF NOT EXISTS Peliculas (id INTEGER PRIMARY KEY AUTOINCREMENT, titu
 CREATE TABLE IF NOT EXISTS Recursos (id INTEGER PRIMARY KEY AUTOINCREMENT, pelicula_id INTEGER NOT NULL REFERENCES Peliculas(id), tipo TEXT NOT NULL, clave_s3 TEXT NOT NULL, mime TEXT NOT NULL, tamano INTEGER NOT NULL, fuente_url TEXT NOT NULL DEFAULT '', referencia_derechos TEXT, UNIQUE(pelicula_id,tipo));
 CREATE TABLE IF NOT EXISTS Favoritos (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL REFERENCES Usuarios(id), pelicula_id INTEGER NOT NULL REFERENCES Peliculas(id), UNIQUE(usuario_id,pelicula_id));
 CREATE TABLE IF NOT EXISTS Vistas (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL REFERENCES Usuarios(id), pelicula_id INTEGER NOT NULL REFERENCES Peliculas(id), fecha TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, playback_token TEXT, UNIQUE(usuario_id,playback_token));
+CREATE TABLE IF NOT EXISTS Resenas (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario_id INTEGER NOT NULL REFERENCES Usuarios(id), pelicula_id INTEGER NOT NULL REFERENCES Peliculas(id), resena TEXT NOT NULL, valoracion INTEGER CHECK(valoracion IS NULL OR (valoracion BETWEEN 1 AND 5 AND valoracion = CAST(valoracion AS INTEGER))), fecha TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, actualizado_en TEXT);
 CREATE TABLE IF NOT EXISTS Cargas (id TEXT PRIMARY KEY, usuario_id INTEGER NOT NULL REFERENCES Usuarios(id), pelicula_id INTEGER NOT NULL REFERENCES Peliculas(id), tipo TEXT NOT NULL, clave_s3 TEXT NOT NULL, mime TEXT NOT NULL, tamano INTEGER NOT NULL, multipart_id TEXT, part_size INTEGER NOT NULL DEFAULT 10485760, fuente_url TEXT, referencia_derechos TEXT, estado TEXT NOT NULL DEFAULT 'pendiente', creado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, actualizado_en TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 SQL;
         $this->pdo->exec($sql);
+        $reviewColumns = $this->pdo->query('PRAGMA table_info(Resenas)')->fetchAll(PDO::FETCH_ASSOC);
+        $names = array_column($reviewColumns, 'name');
+        if (!in_array('valoracion', $names, true)) { $this->pdo->exec('ALTER TABLE Resenas ADD COLUMN valoracion INTEGER NULL'); }
+        if (!in_array('actualizado_en', $names, true)) { $this->pdo->exec('ALTER TABLE Resenas ADD COLUMN actualizado_en TEXT NULL'); }
+        $this->pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS uq_resena_usuario_pelicula ON Resenas(usuario_id, pelicula_id)');
         $this->seedCategories();
     }
 }

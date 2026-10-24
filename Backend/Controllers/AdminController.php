@@ -9,26 +9,60 @@ final class AdminController
 {
     public function __construct(private Application $app) {}
 
-    public function index(?array $errors = null, ?array $old = null): void
+    public function index(string $section = 'resumen', ?array $errors = null, ?array $old = null): void
     {
         $this->app->auth()->requireAdmin();
-        $id = (int) ($_GET['id'] ?? 0);
+        if ($section === 'resumen' && isset($_GET['id'])) { Http::redirect('/admin/editar', ['id' => self::page($_GET['id'])]); }
+        if ($section === 'resumen' && isset($_GET['resenas_pagina'])) { Http::redirect('/admin/resenas', ['resenas_pagina' => self::page($_GET['resenas_pagina'])]); }
+        $query = self::search($_GET['q'] ?? '');
+        $page = self::page($_GET[$section === 'resenas' ? 'resenas_pagina' : 'pagina'] ?? 1);
+        $id = in_array($section, ['editar', 'archivos'], true) ? (int) (filter_var($_GET['id'] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) ?: 0) : 0;
         $editing = $id > 0 ? $this->app->movies()->find($id, false) : null;
-        if ($id > 0 && !$editing) { throw new HttpException(404, 'No existe esa ficha.'); }
+        if (in_array($section, ['editar', 'archivos'], true) && !$editing) { throw new HttpException(404, 'No existe esa ficha.'); }
         if ($editing) {
             $editing = $this->app->catalog()->decorate([$editing])[0];
             $editing['recursos'] = $this->app->resources()->allForMovie($id);
         }
-        $this->app->render('admin', ['title' => 'Cabina de proyección', 'editingMovie' => $editing,
-            'movies' => $this->app->catalog()->decorate($this->app->movies()->all('', null, false)),
+        $listing = $section === 'peliculas' ? $this->app->movies()->adminPage($page, $query) : ['items' => [], 'page' => 1, 'pages' => 1, 'total' => 0];
+        $this->app->render('admin', ['title' => 'El estudio', 'adminSection' => $section, 'adminQuery' => $query, 'listPage' => $page, 'editingMovie' => $editing,
+            'moderation' => $section === 'resenas' ? $this->app->reviews()->moderationPage($page, $query) : ['items' => [], 'page' => 1, 'pages' => 1, 'total' => 0],
+            'movieListing' => $listing, 'movies' => $this->app->catalog()->decorate($listing['items']),
             'categories' => $this->app->movies()->categories(), 'stats' => $this->app->movies()->stats(),
             'errors' => $errors ?? [], 'old' => $old ?? []]);
+    }
+
+    public static function search(mixed $value): string
+    {
+        if (!is_string($value) || !mb_check_encoding($value, 'UTF-8') || mb_strlen($value) > 120) { throw new HttpException(400, 'La búsqueda admite hasta 120 caracteres.'); }
+        return trim($value);
+    }
+
+    public static function page(mixed $value): int
+    {
+        $page = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if (!$page) { throw new HttpException(400, 'La página solicitada no es válida.'); }
+        return (int) $page;
+    }
+
+    public function deleteReview(): void
+    {
+        $this->app->auth()->requireAdmin();
+        Csrf::validate();
+        $id = filter_var($_POST['resena_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        $page = filter_var($_POST['resenas_pagina'] ?? 1, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if (!$id || !$page) { throw new HttpException(400, 'Selecciona una reseña y una página válidas.'); }
+        $query = self::search($_POST['q'] ?? '');
+        $this->app->reviewService()->moderate((int) $id);
+        $this->app->flash('success', 'Reseña eliminada por moderación. La valoración del público se ha actualizado.');
+        Http::redirect('/admin/resenas', ['resenas_pagina' => $page, 'q' => $query]);
     }
 
     public function save(): void
     {
         $this->app->auth()->requireAdmin();
         Csrf::validate();
+        $query = self::search($_POST['q'] ?? '');
+        $page = self::page($_POST['pagina'] ?? 1);
         $id = max(0, (int) Http::input('id')) ?: null;
         if ($id && !$this->app->movies()->find($id, false)) { throw new HttpException(404, 'No existe esa ficha.'); }
         $data = [];
@@ -58,7 +92,8 @@ final class AdminController
         if ($errors) {
             http_response_code(422);
             $_GET['id'] = $id ?? 0;
-            $this->index($errors, $data + ['id' => $id]);
+            $_GET['q'] = $query; $_GET['pagina'] = $page;
+            $this->index($id ? 'editar' : 'nuevo', $errors, $data + ['id' => $id]);
             return;
         }
         $data['genero'] = $category['nombre'];
@@ -66,6 +101,6 @@ final class AdminController
         $this->app->movies()->setState($savedId, $data['estado']);
         $this->app->catalog()->invalidate();
         $this->app->flash('success', $data['estado'] === 'publicado' ? 'Contenido publicado en el catálogo.' : 'Borrador guardado. Ya puedes cargar sus archivos.');
-        Http::redirect('/admin/editar', ['id' => $savedId]);
+        Http::redirect('/admin/editar', ['id' => $savedId, 'q' => $query, 'pagina' => $page]);
     }
 }

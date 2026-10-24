@@ -29,7 +29,7 @@ final class Http
             return '/catalogo';
         }
         $path = $parts['path'] ?? '';
-        if (!in_array($path, ['/catalogo', '/detalle', '/reproducir', '/favoritos', '/historial', '/admin', '/admin/editar'], true)) {
+        if (!in_array($path, ['/catalogo', '/detalle', '/reproducir', '/favoritos', '/historial', '/admin', '/admin/peliculas', '/admin/nuevo', '/admin/editar', '/admin/archivos', '/admin/resenas'], true)) {
             return '/catalogo';
         }
         parse_str($parts['query'] ?? '', $params);
@@ -39,6 +39,13 @@ final class Http
         }
         if ($path === '/reproducir') {
             $safe['tipo'] = ($params['tipo'] ?? '') === 'pelicula' ? 'pelicula' : 'trailer';
+        }
+        if (str_starts_with($path, '/admin')) {
+            if (is_string($params['q'] ?? null)) { $safe['q'] = mb_substr(trim($params['q']), 0, 120); }
+            foreach (['pagina', 'resenas_pagina'] as $pageKey) {
+                $page = filter_var($params[$pageKey] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                if ($page) { $safe[$pageKey] = $page; }
+            }
         }
         return $path . ($safe ? '?' . http_build_query($safe) : '');
     }

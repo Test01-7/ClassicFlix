@@ -68,6 +68,20 @@ CREATE TABLE IF NOT EXISTS Vistas (
  CONSTRAINT fk_vistas_pelicula FOREIGN KEY (pelicula_id) REFERENCES Peliculas(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS Resenas (
+ id INT AUTO_INCREMENT PRIMARY KEY,
+ usuario_id INT NOT NULL,
+ pelicula_id INT NOT NULL,
+ resena TEXT NOT NULL,
+ valoracion TINYINT UNSIGNED NULL,
+ fecha DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ actualizado_en DATETIME NULL,
+ UNIQUE KEY uq_resena_usuario_pelicula (usuario_id,pelicula_id),
+ CONSTRAINT ck_resenas_valoracion CHECK (valoracion IS NULL OR valoracion BETWEEN 1 AND 5),
+ CONSTRAINT fk_resenas_usuario FOREIGN KEY (usuario_id) REFERENCES Usuarios(id),
+ CONSTRAINT fk_resenas_pelicula FOREIGN KEY (pelicula_id) REFERENCES Peliculas(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Las cargas no se convierten en recursos hasta verificar el archivo en S3.
 CREATE TABLE IF NOT EXISTS Cargas (
  id CHAR(32) PRIMARY KEY,

@@ -7,11 +7,14 @@ use PDOException;
 final class MovieRepository
 {
     private const SELECT = 'SELECT p.*, c.nombre AS categoria, rp.clave_s3 AS poster_key,
-        rt.id AS trailer_resource_id, rm.id AS movie_resource_id FROM Peliculas p
+        rt.id AS trailer_resource_id, rm.id AS movie_resource_id,
+        rv.valoracion_media, COALESCE(rv.valoraciones_total, 0) AS valoraciones_total FROM Peliculas p
         LEFT JOIN Categorias c ON c.id = p.categoria_id
         LEFT JOIN Recursos rp ON rp.pelicula_id = p.id AND rp.tipo = \'portada\'
         LEFT JOIN Recursos rt ON rt.pelicula_id = p.id AND rt.tipo = \'trailer\'
-        LEFT JOIN Recursos rm ON rm.pelicula_id = p.id AND rm.tipo = \'pelicula\' ';
+        LEFT JOIN Recursos rm ON rm.pelicula_id = p.id AND rm.tipo = \'pelicula\'
+        LEFT JOIN (SELECT pelicula_id, ROUND(AVG(valoracion), 1) AS valoracion_media, COUNT(valoracion) AS valoraciones_total
+            FROM Resenas WHERE valoracion BETWEEN 1 AND 5 GROUP BY pelicula_id) rv ON rv.pelicula_id = p.id ';
 
     public function __construct(private PDO $pdo) {}
 
@@ -32,6 +35,20 @@ final class MovieRepository
             $params[] = $categoryId;
         }
         return $this->rows(self::SELECT . ($conditions ? ' WHERE ' . implode(' AND ', $conditions) : '') . ' ORDER BY p.id DESC', $params);
+    }
+
+    public function adminPage(int $page = 1, string $search = ''): array
+    {
+        $where = $search === '' ? '' : " WHERE p.titulo LIKE ? ESCAPE '!'";
+        $params = $search === '' ? [] : ['%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $search) . '%'];
+        $count = $this->pdo->prepare('SELECT COUNT(*) FROM Peliculas p' . $where);
+        $count->execute($params);
+        $total = (int) $count->fetchColumn();
+        $pages = max(1, (int) ceil($total / 20));
+        $page = max(1, min($page, $pages));
+        $offset = ($page - 1) * 20; // Bounded integer, never raw request input.
+        return ['items' => $this->rows(self::SELECT . $where . ' ORDER BY p.id DESC LIMIT 20 OFFSET ' . $offset, $params),
+            'page' => $page, 'pages' => $pages, 'total' => $total];
     }
 
     public function find(int $id, bool $publishedOnly = true): ?array
@@ -143,6 +160,8 @@ final class MovieRepository
         $statement = $this->pdo->prepare($sql);
         $statement->execute($params);
         return array_map(static function(array $row): array {
+            $row['valoracion_media'] = $row['valoracion_media'] === null ? null : (float) $row['valoracion_media'];
+            $row['valoraciones_total'] = (int) $row['valoraciones_total'];
             $row['has_trailer'] = $row['trailer_resource_id'] !== null;
             $row['has_movie'] = $row['movie_resource_id'] !== null;
             unset($row['trailer_resource_id'], $row['movie_resource_id']);

@@ -2,10 +2,10 @@
 declare(strict_types=1);
 namespace ClassicFlix;
 
-use ClassicFlix\Controllers\{AdminController, AuthController, CatalogController, MediaController, UploadController};
+use ClassicFlix\Controllers\{AdminController, AuthController, CatalogController, MediaController, UploadController, ReviewController};
 use ClassicFlix\Infrastructure\{Cache, S3Storage};
-use ClassicFlix\Repositories\{MovieRepository, ResourceRepository, UploadRepository, UserRepository};
-use ClassicFlix\Services\{AuthService, CatalogService, MediaService, UploadService};
+use ClassicFlix\Repositories\{MovieRepository, ResourceRepository, UploadRepository, UserRepository, ReviewRepository};
+use ClassicFlix\Services\{AuthService, CatalogService, MediaService, UploadService, ReviewService};
 use ClassicFlix\Support\{Config, Database, Http, HttpException};
 
 final class Application
@@ -19,6 +19,8 @@ final class Application
     public function database(): Database { return $this->instances['database'] ??= new Database($this->settings); }
     public function users(): UserRepository { return $this->instances['users'] ??= new UserRepository($this->database()->pdo()); }
     public function movies(): MovieRepository { return $this->instances['movies'] ??= new MovieRepository($this->database()->pdo()); }
+    public function reviews(): ReviewRepository { return $this->instances['reviews'] ??= new ReviewRepository($this->database()->pdo()); }
+    public function reviewService(): ReviewService { return $this->instances['reviewService'] ??= new ReviewService($this); }
     public function resources(): ResourceRepository { return $this->instances['resources'] ??= new ResourceRepository($this->database()->pdo()); }
     public function uploadRepository(): UploadRepository { return $this->instances['uploadRepository'] ??= new UploadRepository($this->database()->pdo()); }
     public function auth(): AuthService { return $this->instances['auth'] ??= new AuthService($this); }
@@ -42,6 +44,10 @@ final class Application
         }
         $defaults = ['title' => 'ClassicFlix', 'preview' => false, 'previewEnabled' => $this->settings->previewEnabled(), 'user' => $defaultUser, 'errors' => [], 'old' => [], 'flash' => $_SESSION['flash'] ?? null, 'movies' => [], 'categories' => [], 'section' => 'catalogo', 'query' => '', 'category' => '', 'editingMovie' => null, 'stats' => ['peliculas' => 0, 'usuarios' => 0, 'categorias' => 0]];
         $defaults['uploadLimits'] = ['portada' => (int) $this->settings->get('UPLOAD_POSTER_MAX_BYTES', 5242880), 'trailer' => (int) $this->settings->get('UPLOAD_TRAILER_MAX_BYTES', 104857600), 'pelicula' => (int) $this->settings->get('UPLOAD_MOVIE_MAX_BYTES', 2147483648)];
+        $defaults += ['minimumRating' => null, 'ratingOrder' => 'recientes', 'ownReview' => null, 'reviewErrors' => [], 'reviewOld' => [],
+            'adminSection' => 'resumen', 'adminQuery' => '', 'listPage' => 1, 'movieListing' => ['items' => [], 'page' => 1, 'pages' => 1, 'total' => 0],
+            'reviews' => ['items' => [], 'page' => 1, 'pages' => 1, 'total' => 0],
+            'moderation' => ['items' => [], 'page' => 1, 'pages' => 1, 'total' => 0]];
         unset($_SESSION['flash']);
         extract(array_replace($defaults, $data), EXTR_SKIP);
         $GLOBALS['classicflix_preview'] = $preview;
@@ -61,8 +67,8 @@ final class Application
                 if ($method !== 'GET') { throw new HttpException(405, 'La vista previa es de solo lectura.'); }
                 $this->preview(); return;
             }
-            $getRoutes = ['/catalogo', '/login', '/registro', '/detalle', '/reproducir', '/favoritos', '/historial', '/admin', '/admin/editar', '/media', '/portada'];
-            $postRoutes = ['/login', '/registro', '/logout', '/favoritos', '/admin/guardar', '/historial/registrar', '/upload/iniciar', '/upload/parte', '/upload/completar', '/upload/cancelar'];
+            $getRoutes = ['/catalogo', '/login', '/registro', '/detalle', '/reproducir', '/favoritos', '/historial', '/admin', '/admin/peliculas', '/admin/nuevo', '/admin/editar', '/admin/archivos', '/admin/resenas', '/media', '/portada'];
+            $postRoutes = ['/login', '/registro', '/logout', '/favoritos', '/admin/guardar', '/admin/resenas/eliminar', '/historial/registrar', '/upload/iniciar', '/upload/parte', '/upload/completar', '/upload/cancelar', '/resenas/guardar', '/resenas/eliminar'];
             if (!in_array($route, array_unique([...$getRoutes, ...$postRoutes]), true)) { throw new HttpException(404, 'No encontramos esta página.'); }
             if (($method === 'GET' && !in_array($route, $getRoutes, true)) || ($method === 'POST' && !in_array($route, $postRoutes, true)) || !in_array($method, ['GET', 'POST'], true)) {
                 header('Allow: ' . (in_array($route, $postRoutes, true) ? 'POST' : 'GET'));
@@ -74,13 +80,18 @@ final class Application
                     '/login' => (new AuthController($this))->submit(false), '/registro' => (new AuthController($this))->submit(true),
                     '/logout' => (new AuthController($this))->logout(), '/favoritos' => (new CatalogController($this))->favorite(),
                     '/admin/guardar' => (new AdminController($this))->save(), '/historial/registrar' => (new MediaController($this))->record(),
+                    '/resenas/guardar' => (new ReviewController($this))->save(), '/resenas/eliminar' => (new ReviewController($this))->delete(),
+                    '/admin/resenas/eliminar' => (new AdminController($this))->deleteReview(),
                 }; return;
             }
             match ($route) {
                 '/login' => (new AuthController($this))->form(false), '/registro' => (new AuthController($this))->form(true),
                 '/catalogo' => (new CatalogController($this))->index(), '/favoritos' => (new CatalogController($this))->index('favoritos'),
                 '/historial' => (new CatalogController($this))->index('historial'), '/detalle' => (new CatalogController($this))->detail(),
-                '/reproducir' => (new CatalogController($this))->player(), '/admin', '/admin/editar' => (new AdminController($this))->index(),
+                '/reproducir' => (new CatalogController($this))->player(), '/admin' => (new AdminController($this))->index(),
+                '/admin/peliculas' => (new AdminController($this))->index('peliculas'), '/admin/nuevo' => (new AdminController($this))->index('nuevo'),
+                '/admin/editar' => (new AdminController($this))->index('editar'), '/admin/archivos' => (new AdminController($this))->index('archivos'),
+                '/admin/resenas' => (new AdminController($this))->index('resenas'),
                 '/media' => (new MediaController($this))->playback(), '/portada' => (new MediaController($this))->poster(),
             };
         } catch (HttpException $e) {
@@ -109,14 +120,32 @@ final class Application
         if ($screen === 'admin') { $user['rol'] = 'admin'; }
         $query = is_string($_GET['q'] ?? null) ? mb_substr(trim($_GET['q']), 0, 120) : '';
         $category = is_scalar($_GET['categoria'] ?? null) ? (string) $_GET['categoria'] : '';
-        $filtered = array_values(array_filter($movies, static fn(array $item): bool => ($query === '' || str_contains(mb_strtolower($item['titulo'] . ' ' . ($item['director'] ?? '') . ' ' . ($item['sinopsis'] ?? '')), mb_strtolower($query))) && ($category === '' || (int) $item['categoria_id'] === (int) $category)));
+        $options = CatalogService::options($_GET);
+        $filtered = CatalogService::filter($movies, $query, (int) $category > 0 ? (int) $category : null, $options['minimum'], $options['order']);
         if ($screen === 'favoritos') { $filtered = array_values(array_filter($movies, static fn(array $item): bool => !empty($item['is_favorite']))); }
         if ($screen === 'historial') { $filtered = array_slice($movies, 0, 3); }
         $template = match ($screen) { 'login', 'registro' => 'auth', 'detalle' => 'detail', 'reproducir' => 'player', 'admin' => 'admin', default => 'catalog' };
+        $sampleReviews = \ClassicFlix\Preview\Fixtures::reviews((int) $movie['id']);
+        $adminSection = is_string($_GET['panel'] ?? null) ? $_GET['panel'] : (isset($_GET['id']) ? 'editar' : 'resumen');
+        if ($screen === 'admin' && !in_array($adminSection, ['resumen', 'peliculas', 'nuevo', 'editar', 'archivos', 'resenas'], true)) { throw new HttpException(404, 'Esta sección no existe.'); }
+        $adminQuery = $screen === 'admin' ? AdminController::search($_GET['q'] ?? '') : '';
+        $adminPage = $screen === 'admin' ? AdminController::page($_GET[$adminSection === 'resenas' ? 'resenas_pagina' : 'pagina'] ?? 1) : 1;
+        $sampleModeration = [];
+        foreach ($movies as $film) { foreach (\ClassicFlix\Preview\Fixtures::reviews((int) $film['id']) as $review) { $sampleModeration[] = $review + ['pelicula_id' => $film['id'], 'pelicula' => $film['titulo']]; } }
+        usort($sampleModeration, static fn(array $a, array $b): int => [$b['fecha'], $b['id']] <=> [$a['fecha'], $a['id']]);
+        $sampleModeration = array_values(array_filter($sampleModeration, static fn(array $r): bool => $adminQuery === '' || str_contains(mb_strtolower($r['autor'] . ' ' . $r['resena']), mb_strtolower($adminQuery))));
+        $sampleFilms = array_values(array_filter($movies, static fn(array $m): bool => $adminQuery === '' || str_contains(mb_strtolower($m['titulo']), mb_strtolower($adminQuery))));
+        $reviewPages = max(1, (int) ceil(count($sampleModeration) / 10));
+        $reviewPage = min($adminPage, $reviewPages);
+        $sampleListing = ['items' => $sampleFilms, 'page' => 1, 'pages' => 1, 'total' => count($sampleFilms)];
         $this->render($template, ['title' => 'Vista previa · ClassicFlix', 'preview' => true, 'user' => $user, 'register' => $screen === 'registro', 'next' => '/catalogo',
-            'movies' => $filtered, 'movie' => $movie, 'categories' => \ClassicFlix\Preview\Fixtures::categories(), 'stats' => \ClassicFlix\Preview\Fixtures::stats(),
+            'movies' => $screen === 'admin' ? $sampleFilms : $filtered, 'movie' => $movie, 'categories' => \ClassicFlix\Preview\Fixtures::categories(), 'stats' => \ClassicFlix\Preview\Fixtures::stats(),
+            'adminSection' => $adminSection, 'adminQuery' => $adminQuery, 'listPage' => $adminPage, 'movieListing' => $sampleListing,
             'query' => $query, 'category' => $category, 'section' => in_array($screen, ['historial', 'favoritos'], true) ? $screen : 'catalogo',
+            'minimumRating' => $options['minimum'], 'ratingOrder' => $options['order'],
+            'reviews' => ['items' => $sampleReviews, 'page' => 1, 'pages' => 1, 'total' => count($sampleReviews)],
+            'moderation' => ['items' => array_slice($sampleModeration, ($reviewPage - 1) * 10, 10), 'page' => $reviewPage, 'pages' => $reviewPages, 'total' => count($sampleModeration)],
             'kind' => ($_GET['tipo'] ?? '') === 'pelicula' ? 'pelicula' : 'trailer', 'playbackToken' => '', 'mediaEndpoint' => '',
-            'editingMovie' => $screen === 'admin' && isset($_GET['id']) ? $movie : null]);
+            'editingMovie' => $screen === 'admin' && in_array($adminSection, ['editar', 'archivos'], true) ? $movie : null]);
     }
 }

@@ -112,6 +112,7 @@ try {
     $pdo->exec("CREATE TABLE Usuarios (id INTEGER PRIMARY KEY,nombre TEXT,email TEXT,contrasena TEXT,rol TEXT);
         CREATE TABLE Categorias (id INTEGER PRIMARY KEY,nombre TEXT);
         CREATE TABLE Peliculas (id INTEGER PRIMARY KEY AUTOINCREMENT,titulo TEXT,fechalanzamiento INTEGER,genero TEXT,director TEXT,actores TEXT,sinopsis TEXT,duracion INTEGER,trailer_duracion INTEGER,categoria_id INTEGER,estado TEXT DEFAULT 'borrador',actualizado_en TEXT DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE Resenas (id INTEGER PRIMARY KEY AUTOINCREMENT,usuario_id INTEGER,pelicula_id INTEGER,resena TEXT,valoracion INTEGER,fecha TEXT DEFAULT CURRENT_TIMESTAMP,actualizado_en TEXT,UNIQUE(usuario_id,pelicula_id));
         CREATE TABLE Recursos (id INTEGER PRIMARY KEY AUTOINCREMENT,pelicula_id INTEGER,tipo TEXT,clave_s3 TEXT,mime TEXT,tamano INTEGER,fuente_url TEXT,referencia_derechos TEXT,UNIQUE(pelicula_id,tipo));
         CREATE TABLE Cargas (id TEXT PRIMARY KEY,usuario_id INTEGER,pelicula_id INTEGER,tipo TEXT,clave_s3 TEXT,mime TEXT,tamano INTEGER,multipart_id TEXT,part_size INTEGER,fuente_url TEXT,referencia_derechos TEXT,estado TEXT,creado_en TEXT DEFAULT CURRENT_TIMESTAMP,actualizado_en TEXT DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE Vistas (id INTEGER PRIMARY KEY AUTOINCREMENT,usuario_id INTEGER,pelicula_id INTEGER,playback_token TEXT,fecha TEXT DEFAULT CURRENT_TIMESTAMP,UNIQUE(usuario_id,playback_token));

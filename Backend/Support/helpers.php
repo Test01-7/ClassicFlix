@@ -41,7 +41,8 @@ function screen_url(string $route, array $params = []): string
     $screen = match ($route) {
         '/login' => 'login', '/registro' => 'registro', '/detalle' => 'detalle',
         '/reproducir' => 'reproducir', '/favoritos' => 'favoritos', '/historial' => 'historial',
-        '/admin', '/admin/editar' => 'admin', default => 'catalogo'
+        '/admin', '/admin/peliculas', '/admin/nuevo', '/admin/editar', '/admin/archivos', '/admin/resenas' => 'admin', default => 'catalogo'
     };
+    if ($screen === 'admin') { $params = ['panel' => match ($route) { '/admin/peliculas' => 'peliculas', '/admin/nuevo' => 'nuevo', '/admin/editar' => 'editar', '/admin/archivos' => 'archivos', '/admin/resenas' => 'resenas', default => 'resumen' }] + $params; }
     return url('/preview', ['screen' => $screen] + $params);
 }

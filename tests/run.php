@@ -5,7 +5,8 @@ if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 
 // Run in separate PHP processes to isolate sessions, globals and test doubles.
 $root = dirname(__DIR__);
-$suites = ['Repositorios' => '/scripts/test-repositories.php', 'Almacenamiento y caché' => '/tests/storage.php', 'Aplicación HTTP' => '/tests/http.php'];
+$suites = ['Repositorios' => '/scripts/test-repositories.php', 'Reseñas y valoraciones' => '/tests/reviews.php', 'Almacenamiento y caché' => '/tests/storage.php', 'Aplicación HTTP' => '/tests/http.php'];
+if (in_array('--mysql', $argv, true)) { $suites['MySQL/MariaDB desechable'] = '/scripts/test-mysql.php'; }
 foreach ($suites as $name => $file) {
     fwrite(STDOUT, "\n$name\n");
     $process = proc_open([PHP_BINARY, $root . $file], [0 => STDIN, 1 => STDOUT, 2 => STDERR], $pipes, $root);

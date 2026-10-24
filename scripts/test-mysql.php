@@ -15,6 +15,7 @@ use ClassicFlix\Repositories\UserRepository;
 use ClassicFlix\Repositories\MovieRepository;
 use ClassicFlix\Repositories\ResourceRepository;
 use ClassicFlix\Repositories\UploadRepository;
+use ClassicFlix\Repositories\ReviewRepository;
 
 $assertions = 0;
 function verify(bool $condition, string $message): void
@@ -59,6 +60,22 @@ foreach (['portada' => 'image/png', 'trailer' => 'video/mp4'] as $type => $mime)
 $pdo->commit();
 verify($resources->readyToPublish($movieId) && $movies->find($movieId) === null, 'Uploading must not auto-publish.');
 $movies->setState($movieId, 'publicado');
+$reviews = new ReviewRepository($pdo);
+verify($movies->find($movieId)['valoracion_media'] === null, 'Fresh movie must be unrated.');
+$reviews->saveOwn($u1, $movieId, 'Primera reseña.', 5);
+$reviews->saveOwn($u2, $movieId, 'Otra reseña.', 3);
+verify($movies->find($movieId)['valoracion_media'] === 4.0 && $movies->find($movieId)['valoraciones_total'] === 2, 'MySQL aggregate must use actual votes.');
+$reviews->saveOwn($u1, $movieId, 'Reseña actualizada.', 3);
+verify($movies->find($movieId)['valoracion_media'] === 3.0 && $movies->find($movieId)['valoraciones_total'] === 2, 'MySQL upsert must update only one rating.');
+verify($reviews->findOwn($u1, $movieId)['resena'] === 'Reseña actualizada.' && count($reviews->paginate($movieId)['items']) === 2, 'MySQL review reads and prepared LIMIT work.');
+verify(!isset($reviews->paginate($movieId)['items'][0]['email']), 'Public reviews must not select emails.');
+verify($reviews->moderationPage(1, 'Primera cuenta')['total'] === 1, 'Admin author search must work with native prepared statements.');
+verify($reviews->moderationPage(1, 'actualizada')['total'] === 1 && $reviews->moderationPage(1, '%')['total'] === 0, 'Admin text search must escape wildcards.');
+verify($movies->adminPage(1, '100%')['total'] === 1 && $movies->adminPage(1, '100_')['total'] === 0, 'Admin title search must be literal.');
+verify($movies->adminPage(PHP_INT_MAX)['page'] === 1, 'Admin pagination must clamp large offsets.');
+verify($reviews->deleteOwn($u2, $movieId) && $reviews->findOwn($u1, $movieId) !== null, 'MySQL deletion must isolate users.');
+$reviews->deleteOwn($u1, $movieId);
+verify($movies->find($movieId)['valoracion_media'] === null && $movies->find($movieId)['valoraciones_total'] === 0, 'Last deleted rating restores null aggregate.');
 verify(count($movies->all('100%', $categoryId)) === 1 && count($movies->all('100_')) === 0, 'Search must escape SQL wildcards.');
 verify($movies->toggleFavorite($u1, $movieId), 'Favorite add failed.');
 verify(count($movies->favorites($u1)) === 1 && count($movies->favorites($u2)) === 0, 'Favorites must isolate users.');
@@ -107,6 +124,10 @@ verify($row['categoria_id'] !== null, 'Trimmed legacy genre must map to category
 verify((int) $pdo->query('SELECT COUNT(*) FROM Favoritos')->fetchColumn() === 1, 'Existing favorites lost.');
 verify((int) $pdo->query('SELECT COUNT(*) FROM Vistas')->fetchColumn() === 1, 'Existing history lost.');
 verify($pdo->query('SELECT resena FROM Resenas')->fetchColumn() === 'Reseña conservada', 'Existing review lost.');
+verify($pdo->query('SELECT valoracion FROM Resenas')->fetchColumn() === null, 'Legacy review must not receive an invented rating.');
+verify($pdo->query('SELECT actualizado_en FROM Resenas')->fetchColumn() === null, 'Legacy update date must stay unknown.');
+try { $pdo->exec("INSERT INTO Resenas(usuario_id,pelicula_id,resena) VALUES(1,1,'Duplicada')"); verify(false, 'Review unique constraint missing.'); }
+catch (PDOException) { verify(true, 'Migrated review uniqueness verified.'); }
 verify($pdo->query('SELECT contrasena FROM Usuarios')->fetchColumn() === 'legacy-password-preserved', 'Legacy password must not be silently rewritten.');
 try { $pdo->exec('INSERT INTO Favoritos(usuario_id,pelicula_id) VALUES (1,1)'); verify(false, 'Unique favorites constraint missing.'); }
 catch (PDOException) { verify(true, 'Unique favorites constraint verified.'); }
@@ -121,4 +142,12 @@ try { (new Migrator($pdo, $root))->migrate(); verify(false, 'Duplicate preflight
 catch (RuntimeException $e) { verify(str_contains($e->getMessage(), 'duplicados'), 'Duplicate diagnosis should be actionable.'); }
 verify(count($pdo->query('SHOW TABLES')->fetchAll()) === 1 && (int) $pdo->query('SELECT COUNT(*) FROM Favoritos')->fetchColumn() === 2, 'Duplicate preflight must not mutate data/schema.');
 
-fwrite(STDOUT, "$assertions comprobaciones aprobadas contra MariaDB/MySQL local aislado. Bases retenidas solo en var/mysql-test: $fresh, $legacy, $duplicate.\n");
+$reviewDuplicate = 'cf_review_duplicates_' . $run;
+$pdo->exec("CREATE DATABASE `$reviewDuplicate` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+$pdo->exec("USE `$reviewDuplicate`");
+$pdo->exec('CREATE TABLE Resenas(id INT AUTO_INCREMENT PRIMARY KEY,usuario_id INT,pelicula_id INT,resena TEXT,fecha DATETIME DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB');
+$pdo->exec("INSERT INTO Resenas(usuario_id,pelicula_id,resena) VALUES (1,1,'Primera'),(1,1,'Segunda')");
+try { (new Migrator($pdo, $root))->migrate(); verify(false, 'Duplicate review preflight should reject.'); }
+catch (RuntimeException $e) { verify(str_contains($e->getMessage(), 'reseñas duplicadas'), 'Duplicate review diagnosis should be actionable.'); }
+verify(count($pdo->query('SHOW TABLES')->fetchAll()) === 1 && (int) $pdo->query('SELECT COUNT(*) FROM Resenas')->fetchColumn() === 2, 'Duplicate review preflight must preserve all schema and data.');
+fwrite(STDOUT, "$assertions comprobaciones aprobadas contra MariaDB/MySQL local aislado. Bases retenidas solo en var/mysql-test: $fresh, $legacy, $duplicate, $reviewDuplicate.\n");
