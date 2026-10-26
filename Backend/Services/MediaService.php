@@ -42,7 +42,9 @@ final class MediaService
         };
         $ttl = max(60, min($ttl, 14400));
         return [
-            'url' => $this->storage->presignGet((string) $resource['clave_s3'], $ttl, (string) $resource['mime']),
+            'url' => $kind === 'portada'
+                ? $this->storage->presignPoster((string) $resource['clave_s3'], $ttl, (string) $resource['mime'])
+                : $this->storage->presignGet((string) $resource['clave_s3'], $ttl, (string) $resource['mime']),
             'expires_in' => $ttl,
             'kind' => $kind,
         ];

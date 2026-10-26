@@ -21,8 +21,10 @@ Usa cuentas y archivos de prueba propios. Anota el entorno de cada resultado; un
 | Historial | Comenzar reproducción registra una vista; pausar/continuar o reenviar token no duplica. Abrir la página no registra. |
 | Archivos | JPEG/PNG/WebP y MP4 válidos dentro del límite se aceptan; tipo real/tamaño incorrecto se rechazan antes de publicar. |
 | Multipart | Muestra progreso, reintenta partes y finaliza. Cancelar/fallar no publica recursos parciales. |
-| Publicación | Necesita tráiler/portada verificados; película completa puede añadirse después. Subir no publica borradores automáticamente. |
+| Campos opcionales | Sinopsis, enlace de origen y referencia de derechos admiten vacío; una URL aportada sigue validándose. Sinopsis de hasta 10000 caracteres y textos escapados. Duración del tráiler vacía se guarda como 0; negativos, decimales y valores mayores que 86400 se rechazan. |
+| Publicación | Necesita portada y al menos un video verificados: tráiler o película completa. Solo portada o solo videos no permiten publicar. Subir no publica borradores automáticamente. Sin tráiler se oculta su botón; la película completa sigue exigiendo sesión, también por acceso directo. |
 | S3 privado | Objeto sin firma denegado; firmado reproduce y admite Range. Sin sesión no se firma la película. |
+| Miniaturas Lambda | Portada nueva genera JPEG de hasta 400 × 560, proporcional y privado, en `miniaturas/v1/`. El catálogo lo selecciona con firma; mientras no existe/falla su consulta sirve el original. No procesa videos ni sus propias salidas. Los borradores conservan sus permisos y la alerta independiente usa filtros sin solapamiento. |
 | Renovación | TTL reducido: pausa/avance después del vencimiento renueva acceso conservando posición. Sesión vencida solicita login. |
 | Redis | Cachea metadatos y agregados, invalida al editar/publicar contenido o guardar/eliminar reseñas y permite MySQL ante caída. No guarda opiniones, enlaces firmados ni datos personales. |
 | Vista previa | Sin servicios, claramente identificada, sin mutaciones. No se habilita en producción aunque el indicador sea true. |

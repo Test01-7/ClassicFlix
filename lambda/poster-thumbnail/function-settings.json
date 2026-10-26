@@ -1,0 +1,11 @@
+{
+  "FunctionName": "classicflix-miniaturas",
+  "Runtime": "python3.13",
+  "Handler": "lambda_function.lambda_handler",
+  "Architectures": ["x86_64"],
+  "MemorySize": 512,
+  "Timeout": 30,
+  "Environment": {
+    "Variables": { "SOURCE_BUCKET": "mi-primer-bucket-04-07-2006" }
+  }
+}

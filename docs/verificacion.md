@@ -19,6 +19,21 @@
 - El servidor desechable se apagó de forma normal después de las pruebas. No se usaron la base ni el directorio de datos habitual de XAMPP.
 - Los archivos PHP de repositorios, migración y consola pasaron revisión sintáctica; las plantillas JSON de IAM, CORS y ciclo de vida pudieron analizarse.
 
+## Campos opcionales y publicación sin tráiler — 26 de octubre de 2026
+
+`php tests/run.php`: **319 comprobaciones locales aprobadas** (24 repositorios, 67 reseñas, 62 almacenamiento/caché y 166 HTTP). Se ejecutaron con PHP 8.2.12, SQLite aislado, dobles de S3/Redis y firmas del SDK AWS sin solicitudes remotas. El entorno restringido impidió inicialmente el acceso del SDK a sus archivos y la conexión al servidor temporal; la ejecución autorizada fuera de esa restricción completó las cuatro suites.
+
+Se comprobaron las ocho combinaciones de portada/tráiler/película para publicar, persistencia de procedencia/derechos vacíos, formularios sin obligatoriedad en esos campos, sinopsis vacía y corta, límite de longitud, duración de tráiler vacía e inválida y publicación HTTP con portada/película sin tráiler. La ficha oculta el enlace al tráiler ausente y muestra «Sinopsis no disponible.» cuando corresponde. La reproducción completa y su firma continúan exigiendo sesión.
+
+No hay cambios de esquema ni dependencias. Las pruebas no se conectaron a RDS, EC2 ni S3 reales y no modificaron su configuración.
+
+## Integración local de miniaturas Lambda — 26 de octubre de 2026
+
+- `php tests/run.php`: **334 comprobaciones aprobadas** (24 repositorios, 67 reseñas, 77 almacenamiento/caché y 166 HTTP). Incluye selección y firma de la miniatura, formato esperado, ausencia/objeto vacío/error de S3, desactivación sin HEAD y rechazo de borradores antes de consultar S3.
+- `python tests/lambda_thumbnails.py`: **11 pruebas aprobadas**, con Pillow 12.2.0 real y cliente S3 ficticio. Verifica JPEG/PNG/WebP, tamaño/proporciones, transparencia, orientación y retirada de EXIF, claves deterministas, eventos repetidos, codificación URL, límites de bytes/píxeles, archivos inválidos, eventos ignorados y propagación de errores AWS para reintentar.
+- `python scripts/build-lambda.py --layer`: generados los ZIP del código y de Pillow CPython 3.13/Linux x86_64. Las plantillas JSON se analizaron correctamente. La compilación de la capa seleccionó la rueda Linux desde PyPI; no instaló ese binario en el Python local ni accedió a AWS.
+- No se aplicaron cambios en la cuenta AWS. La importación real de la capa dentro de Lambda, IAM, desencadenador y selección desde el catálogo desplegado deben comprobarse con una portada nueva siguiendo `lambda-miniaturas.md`.
+
 ## Pendiente de infraestructura del propietario
 
 La verificación anterior no demuestra MySQL 8 específicamente ni conexiones reales con Redis y AWS. Deben ejecutarse en el entorno final las pruebas de IAM, CORS, cargas y reproducción contra S3, expiración/renovación de firmas, caída/recuperación de Redis, TLS y despliegue EC2 descritas en `aceptacion.md` y `aws.md`.

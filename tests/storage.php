@@ -29,6 +29,8 @@ final class TestS3Client
     public array $commands = [];
     public array $aborted = [];
     public bool $failComplete = false;
+    public bool $failHead = false;
+    public array $heads = [];
     public function getCommand(string $operation, array $arguments): array
     {
         $this->commands[] = [$operation, $arguments];
@@ -60,6 +62,8 @@ final class TestS3Client
     }
     public function headObject(array $arguments): array
     {
+        $this->heads[] = $arguments['Key'];
+        if ($this->failHead) { throw new RuntimeException('Simulated S3 failure'); }
         if (!isset($this->objects[$arguments['Key']])) { throw new RuntimeException('Object absent'); }
         $object = $this->objects[$arguments['Key']];
         return ['ContentLength' => $object['size'], 'ContentType' => $object['mime']];
@@ -100,7 +104,7 @@ $rejects = static function (int $status, callable $operation, string $name) use 
     $assert(false, $name . ' was accepted');
 };
 $savedEnv = [];
-foreach (['AWS_BUCKET' => 'test-bucket', 'REDIS_ENABLED' => 'true', 'MEDIA_TRAILER_TTL' => '900', 'MEDIA_MOVIE_TTL' => '3600', 'UPLOAD_POSTER_MAX_BYTES' => '5242880', 'UPLOAD_TRAILER_MAX_BYTES' => '104857600', 'UPLOAD_MOVIE_MAX_BYTES' => '2147483648'] as $key => $value) {
+foreach (['AWS_BUCKET' => 'test-bucket', 'REDIS_ENABLED' => 'true', 'POSTER_THUMBNAILS_ENABLED' => 'true', 'MEDIA_TRAILER_TTL' => '900', 'MEDIA_MOVIE_TTL' => '3600', 'UPLOAD_POSTER_MAX_BYTES' => '5242880', 'UPLOAD_TRAILER_MAX_BYTES' => '104857600', 'UPLOAD_MOVIE_MAX_BYTES' => '2147483648'] as $key => $value) {
     $savedEnv[$key] = getenv($key);
     putenv($key . '=' . $value);
 }
@@ -141,6 +145,7 @@ try {
     $assert($result['mode'] === 'put', 'Small upload uses direct PUT');
     $assert($result['headers']['If-None-Match'] === '*' && $client->commands[array_key_last($client->commands)][1]['IfNoneMatch'] === '*', 'Signed PUT prevents overwriting a verified object');
     $row = $uploads->find($result['upload_id']);
+    $assert($row['fuente_url'] === '' && $row['referencia_derechos'] === '', 'Upload accepts omitted source and rights fields');
     $assert(str_starts_with($row['clave_s3'], "classicflix/$movie/portada/"), 'Server owns upload key');
     $client->objects[$row['clave_s3']] = ['size' => strlen($png), 'mime' => 'image/png', 'sample' => $png];
     $rejects(404, fn() => $service->complete($result['upload_id'], 2), 'Upload bound to owner');
@@ -193,6 +198,46 @@ try {
     $movies->setState($movie, 'publicado');
     $assert($media->sign($movie, 'trailer', null)['expires_in'] === 900, 'Published trailer accessible anonymously with short TTL');
     $assert($media->sign($movie, 'pelicula', ['id' => 2, 'rol' => 'usuario'])['expires_in'] === 3600, 'Authenticated film signed');
+    $posterKey = $resources->get($movie, 'portada')['clave_s3'];
+    $thumbnailKey = S3Storage::thumbnailKey($posterKey);
+    $assert($thumbnailKey === "miniaturas/v1/$movie/" . $replacement['upload_id'] . '.jpg', 'Thumbnail mapping is tied to the current unique poster');
+    $assert(str_contains($media->sign($movie, 'portada', null)['url'], rawurlencode($posterKey)), 'Missing Lambda thumbnail falls back to original');
+    $client->objects[$thumbnailKey] = ['size' => 500, 'mime' => 'image/jpeg', 'sample' => 'fixture'];
+    $signedThumbnail = $media->sign($movie, 'portada', null);
+    $assert(str_contains($signedThumbnail['url'], rawurlencode($thumbnailKey)) && $signedThumbnail['expires_in'] === 900, 'Anonymous published poster gets expiring thumbnail URL');
+    $signedCommand = $client->commands[array_key_last($client->commands)];
+    $assert($signedCommand[1]['ResponseContentType'] === 'image/jpeg' && $signedCommand[1]['ResponseContentDisposition'] === 'inline', 'Thumbnail MIME and inline disposition are signed');
+    $client->objects[$thumbnailKey]['mime'] = 'text/html';
+    $assert(str_contains($media->sign($movie, 'portada', null)['url'], rawurlencode($posterKey)), 'Unexpected thumbnail MIME falls back to original');
+    $client->objects[$thumbnailKey] = ['size' => 0, 'mime' => 'image/jpeg', 'sample' => ''];
+    $assert(str_contains($media->sign($movie, 'portada', null)['url'], rawurlencode($posterKey)), 'Empty derivative is not served');
+    $client->objects[$thumbnailKey]['size'] = 500;
+    $client->failHead = true;
+    $assert(str_contains($media->sign($movie, 'portada', null)['url'], rawurlencode($posterKey)), 'S3 HEAD failure preserves original poster');
+    $client->failHead = false;
+    putenv('POSTER_THUMBNAILS_ENABLED=false');
+    $headsBefore = count($client->heads);
+    $assert(str_contains($media->sign($movie, 'portada', null)['url'], rawurlencode($posterKey)) && count($client->heads) === $headsBefore, 'Disabled thumbnails do not issue a HEAD request');
+    putenv('POSTER_THUMBNAILS_ENABLED=true');
+    foreach (['classicflix/1/trailer/' . str_repeat('a', 32) . '.mp4', 'classicflix/0/portada/' . str_repeat('a', 32) . '.jpg', '../' . $posterKey, $posterKey . '.html', $thumbnailKey] as $invalidKey) {
+        $assert(S3Storage::thumbnailKey($invalidKey) === null, 'No thumbnail mapping for unowned/non-poster key');
+    }
+    $movies->setState($movie, 'borrador');
+    $headsBefore = count($client->heads);
+    $rejects(404, fn() => $media->sign($movie, 'portada', null), 'Draft thumbnails remain private before S3 access');
+    $assert(count($client->heads) === $headsBefore, 'Draft rejection does not query thumbnail storage');
+    $movies->setState($movie, 'publicado');
+    foreach ([
+        [[], false], [['portada'], false], [['trailer'], false], [['pelicula'], false],
+        [['trailer', 'pelicula'], false], [['portada', 'trailer'], true],
+        [['portada', 'pelicula'], true], [['portada', 'trailer', 'pelicula'], true],
+    ] as [$types, $expected]) {
+        $contentId = $movies->save(['titulo' => 'Publication assets ' . implode(',', $types), 'fechalanzamiento' => 1928, 'categoria_id' => 1]);
+        foreach ($types as $type) {
+            $resources->save(['pelicula_id' => $contentId, 'tipo' => $type, 'clave_s3' => "classicflix/$contentId/$type/fixture", 'mime' => $type === 'portada' ? 'image/png' : 'video/mp4', 'tamano' => 100]);
+        }
+        $assert($resources->readyToPublish($contentId) === $expected, 'Publication resource combination: ' . implode(',', $types));
+    }
     $rejects(400, fn() => $media->sign($movie, '../secret', ['id' => 1, 'rol' => 'admin']), 'Arbitrary resource types rejected');
 
     $token = $media->playbackToken($movie, 'pelicula');

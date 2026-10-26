@@ -276,18 +276,43 @@ try {
     $adminPanel = $admin->request('GET', '/admin/peliculas');
     $assert($adminPanel['status'] === 200 && str_contains($adminPanel['body'], 'Fixture Borrador Oculto'), 'Admin sees real published and draft content');
     $adminCsrf = HttpTestClient::token($adminPanel);
-    $adminData = ['_token' => $adminCsrf, 'titulo' => 'Fixture Admin Nueva', 'fechalanzamiento' => '1935', 'categoria_id' => (string) $categories['Drama'], 'sinopsis' => 'Una nueva sinopsis válida para crear un borrador.', 'duracion' => '5400', 'trailer_duracion' => '120', 'estado' => 'publicado'];
-    $assert($admin->request('POST', '/admin/guardar', [], $adminData)['status'] === 422, 'Publication requires existing trailer and cover');
+    $adminData = ['_token' => $adminCsrf, 'titulo' => 'Fixture Admin Nueva', 'fechalanzamiento' => '1935', 'categoria_id' => (string) $categories['Drama'], 'sinopsis' => '', 'duracion' => '5400', 'trailer_duracion' => '', 'estado' => 'publicado'];
+    $assert($admin->request('POST', '/admin/guardar', [], $adminData)['status'] === 422, 'Publication requires a cover and at least one video');
     $adminData['estado'] = 'borrador';
     $saved = $admin->request('POST', '/admin/guardar', [], $adminData);
     $assert($saved['status'] === 303 && (HttpTestClient::location($saved)['r'] ?? '') === '/admin/editar', 'Admin creates draft then reaches asset editor');
     $savedId = (int) (HttpTestClient::location($saved)['id'] ?? 0);
     $assert($movies->find($savedId, false) !== null && $movies->find($savedId) === null, 'New draft remains absent from public catalog');
+    $assert($movies->find($savedId, false)['sinopsis'] === '' && (int) $movies->find($savedId, false)['trailer_duracion'] === 0, 'Empty synopsis and trailer duration persist without invented metadata');
+    $editData = $adminData + ['id' => (string) $savedId];
+    $assert($admin->request('POST', '/admin/guardar', [], array_replace($editData, ['sinopsis' => str_repeat('a', 10001)]))['status'] === 422, 'Optional synopsis still enforces its maximum length');
+    foreach (['-1', '1.5', '86401'] as $invalidDuration) {
+        $assert($admin->request('POST', '/admin/guardar', [], array_replace($editData, ['trailer_duracion' => $invalidDuration]))['status'] === 422, 'Optional trailer duration rejects ' . $invalidDuration);
+    }
     $assert($admin->request('GET', '/admin/editar', ['id' => $savedId])['status'] === 200, 'Admin asset editor renders saved draft');
     $filteredMovies = $admin->request('GET', '/admin/peliculas', ['q' => 'Niebla']);
     $assert(str_contains($filteredMovies['body'], 'Fixture Niebla') && !str_contains($filteredMovies['body'], 'Fixture Ámbar') && !str_contains($filteredMovies['body'], 'id="contenido-form"'), 'Movie page searches titles without rendering editor');
     $editorPage = $admin->request('GET', '/admin/editar', ['id' => $savedId, 'q' => 'Nueva', 'pagina' => 2]);
     $assert(str_contains($editorPage['body'], 'q=Nueva&amp;pagina=2') && !str_contains($editorPage['body'], 'data-upload-form'), 'Editor preserves list context and separates uploads');
+    foreach (['sinopsis', 'trailer_duracion'] as $optionalField) {
+        preg_match('~<(?:input|textarea)\b[^>]*\bname="' . $optionalField . '"[^>]*>~', $editorPage['body'], $tag);
+        $assert(isset($tag[0]) && !preg_match('/\brequired\b/', $tag[0]), 'Native editor field is optional: ' . $optionalField);
+    }
+    $filesPage = $admin->request('GET', '/admin/archivos', ['id' => $savedId]);
+    foreach (['fuente_url', 'referencia_derechos'] as $optionalField) {
+        preg_match_all('~<(?:input|textarea)\b[^>]*\bname="' . $optionalField . '"[^>]*>~', $filesPage['body'], $tags);
+        $assert(count($tags[0]) === 3 && !preg_match('/\brequired\b/', implode('', $tags[0])), 'Source metadata optional in all three upload forms: ' . $optionalField);
+    }
+    $resources->save(['pelicula_id' => $savedId, 'tipo' => 'pelicula', 'clave_s3' => "classicflix/$savedId/pelicula/fixture.mp4", 'mime' => 'video/mp4', 'tamano' => 100]);
+    $publishData = array_replace($editData, ['estado' => 'publicado']);
+    $assert($admin->request('POST', '/admin/guardar', [], $publishData)['status'] === 422, 'Film alone cannot publish without a cover');
+    $resources->save(['pelicula_id' => $savedId, 'tipo' => 'portada', 'clave_s3' => "classicflix/$savedId/portada/fixture.jpg", 'mime' => 'image/jpeg', 'tamano' => 100]);
+    $assert($admin->request('POST', '/admin/guardar', [], $publishData)['status'] === 303, 'Cover and full film publish without a trailer or synopsis');
+    $publicWithoutTrailer = $anonymous->request('GET', '/detalle', ['id' => $savedId]);
+    $assert($publicWithoutTrailer['status'] === 200 && str_contains($publicWithoutTrailer['body'], 'Sinopsis no disponible.') && str_contains($publicWithoutTrailer['body'], 'Ver película') && !str_contains($publicWithoutTrailer['body'], 'Ver tráiler'), 'Public details show only available playback and handle missing synopsis');
+    $assert($anonymous->request('GET', '/reproducir', ['id' => $savedId, 'tipo' => 'pelicula'])['status'] === 303 && $anonymous->request('GET', '/media', ['id' => $savedId, 'tipo' => 'pelicula'])['status'] === 401, 'Trailer-free full film still requires authentication');
+    $assert($other->request('GET', '/reproducir', ['id' => $savedId, 'tipo' => 'pelicula'])['status'] === 200 && $anonymous->request('GET', '/reproducir', ['id' => $savedId, 'tipo' => 'trailer'])['status'] === 404, 'Members can open the film player and absent trailer is unavailable');
+    $assert($admin->request('POST', '/admin/guardar', [], array_replace($publishData, ['sinopsis' => '<b>Hola</b>']))['status'] === 303 && str_contains($anonymous->request('GET', '/detalle', ['id' => $savedId])['body'], '&lt;b&gt;Hola&lt;/b&gt;'), 'Short optional synopsis is accepted and remains escaped');
     $assert(str_contains($admin->request('GET', '/admin/archivos', ['id' => $savedId])['body'], 'data-upload-form'), 'Files have a dedicated page');
     $assert(str_contains($admin->request('GET', '/admin/nuevo')['body'], 'id="contenido-form"'), 'New content has a dedicated page');
     $assert((HttpTestClient::location($admin->request('GET', '/admin', ['id' => $savedId]))['r'] ?? '') === '/admin/editar', 'Legacy admin movie link redirects to editor');

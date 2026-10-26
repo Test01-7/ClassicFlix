@@ -74,7 +74,6 @@ final class AdminController
             if (mb_strlen($data[$field]) > $max) { $errors[$field] = 'Este campo es demasiado largo.'; }
         }
         if (mb_strlen($data['titulo']) < 1) { $errors['titulo'] = 'Escribe el título.'; }
-        if (mb_strlen($data['sinopsis']) < 10) { $errors['sinopsis'] = 'Añade una sinopsis de al menos 10 caracteres.'; }
         if (!ctype_digit($data['fechalanzamiento']) || (int) $data['fechalanzamiento'] < 1888 || (int) $data['fechalanzamiento'] > (int) date('Y') + 1) {
             $errors['fechalanzamiento'] = 'Introduce un año válido.';
         }
@@ -82,12 +81,16 @@ final class AdminController
         $category = null;
         foreach ($categories as $candidate) { if ((int) $candidate['id'] === (int) $data['categoria_id']) { $category = $candidate; } }
         if (!$category) { $errors['categoria_id'] = 'Selecciona una categoría.'; }
-        foreach (['duracion', 'trailer_duracion'] as $field) {
-            if (!ctype_digit($data[$field]) || (int) $data[$field] < 1 || (int) $data[$field] > 86400) { $errors[$field] = 'Introduce una duración entre 1 y 86400 segundos.'; }
+        if (!ctype_digit($data['duracion']) || (int) $data['duracion'] < 1 || (int) $data['duracion'] > 86400) {
+            $errors['duracion'] = 'Introduce una duración entre 1 y 86400 segundos.';
+        }
+        $data['trailer_duracion'] = $data['trailer_duracion'] === '' ? '0' : $data['trailer_duracion'];
+        if (!ctype_digit($data['trailer_duracion']) || (int) $data['trailer_duracion'] > 86400) {
+            $errors['trailer_duracion'] = 'Introduce una duración entre 0 y 86400 segundos o deja el campo vacío.';
         }
         if (!in_array($data['estado'], ['borrador', 'publicado'], true)) { $errors['estado'] = 'Selecciona un estado válido.'; }
         if ($data['estado'] === 'publicado' && (!$id || !$this->app->resources()->readyToPublish($id))) {
-            $errors['estado'] = 'Guarda el borrador, carga la portada y el tráiler y después publícalo.';
+            $errors['estado'] = 'Guarda el borrador y carga una portada y al menos un tráiler o una película completa antes de publicarlo.';
         }
         if ($errors) {
             http_response_code(422);

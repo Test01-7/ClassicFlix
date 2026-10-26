@@ -66,6 +66,32 @@ final class S3Storage
         ], $ttl);
     }
 
+    /** Same deterministic mapping as lambda/poster-thumbnail/lambda_function.py. */
+    public static function thumbnailKey(string $sourceKey): ?string
+    {
+        if (!preg_match('~\Aclassicflix/([1-9][0-9]*)/portada/([a-f0-9]{32})\.(?:jpg|png|webp)\z~', $sourceKey, $matches)) {
+            return null;
+        }
+        return 'miniaturas/v1/' . $matches[1] . '/' . $matches[2] . '.jpg';
+    }
+
+    public function presignPoster(string $key, int $ttl, string $mime): string
+    {
+        $thumbnail = self::thumbnailKey($key);
+        if ($thumbnail !== null && $this->config->bool('POSTER_THUMBNAILS_ENABLED', true)) {
+            try {
+                $head = $this->client()->headObject($this->object($thumbnail));
+                if ((int) ($head['ContentLength'] ?? 0) > 0 && ($head['ContentType'] ?? '') === 'image/jpeg') {
+                    return $this->presignGet($thumbnail, $ttl, 'image/jpeg');
+                }
+            } catch (\Throwable) {
+                // Lambda is asynchronous. Missing thumbnails or S3 errors use the original.
+                // Do not expose SDK exception messages or signed requests.
+            }
+        }
+        return $this->presignGet($key, $ttl, $mime);
+    }
+
     public function presignPut(string $key, string $mime): string
     {
         // A reusable presigned PUT must not overwrite bytes after verification.

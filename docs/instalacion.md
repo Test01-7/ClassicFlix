@@ -37,7 +37,9 @@ Si la cuenta MySQL solo tiene permisos sobre una base existente, usa `migrate`. 
 
 La migración crea tablas faltantes y agrega columnas/índices; no elimina usuarios, películas, favoritos, vistas ni reseñas. Es repetible. Si hay favoritos duplicados, se detiene antes de cambiar el esquema y señala los identificadores; resuelve los duplicados manualmente con respaldo disponible y repite. MySQL hace commits implícitos en DDL: ante un fallo, conserva los cambios aditivos realizados y puedes repetir una vez corregida la causa.
 
-Las instalaciones nuevas no crean la columna `imagen`: las portadas viven en `Recursos`/S3. En una base anterior que ya la tenga, la migración la deja intacta y **no transforma `imagen` en una ruta S3 confiable**. Las películas previas quedan en borrador hasta cargar y verificar portada y tráiler. Los valores anteriores de `duracion` no se multiplican automáticamente: si guardabas minutos, corrígelos al editar. Se conservan géneros y se vinculan a categorías.
+Las instalaciones nuevas no crean la columna `imagen`: las portadas viven en `Recursos`/S3. En una base anterior que ya la tenga, la migración la deja intacta y **no transforma `imagen` en una ruta S3 confiable**. Las películas previas quedan en borrador hasta cargar y verificar una portada y al menos un video (tráiler o película completa). Los valores anteriores de `duracion` no se multiplican automáticamente: si guardabas minutos, corrígelos al editar. Se conservan géneros y se vinculan a categorías.
+
+La sinopsis, el enlace de origen y la referencia de derechos son opcionales. La duración del tráiler puede dejarse vacía (se guarda como 0). Este ajuste de validaciones y publicación no cambia el esquema ni requiere una migración adicional. Consulta [actualizar el código en EC2](despliegue-ubuntu-rds.md#13-actualizar-el-código-desde-github) para conservar la configuración existente.
 
 ### Incorporar reseñas y valoraciones
 

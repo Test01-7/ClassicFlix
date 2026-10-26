@@ -1,6 +1,8 @@
-# Desplegar ClassicFlix: EC2 Ubuntu, RDS, ElastiCache y S3
+# Desplegar ClassicFlix: EC2 Ubuntu, RDS y S3
 
 Guía preparada el 24/10/2026 para una EC2 existente. Describe operaciones que tú realizarás en tu cuenta: no se han creado recursos ni comprobado conexiones con tu AWS.
+
+Actualizada según tu aclaración: tienes EC2, un bucket S3 y una instancia RDS MySQL llamada **`tiendadigitaldb`**. El recurso que confundiste con Redis era RDS; no se ha confirmado un Redis existente. **No necesitas crear Redis ni ElastiCache para la consigna compartida**. Aquí reutilizamos tu RDS y S3; la caché queda opcional y el ejemplo la desactiva.
 
 Esta guía está adaptada a tu **Ubuntu 26.04 LTS**. Sus repositorios incluyen PHP 8.5, según las [notas oficiales de Ubuntu](https://documentation.ubuntu.com/release-notes/26.04/changes-since-previous-interim/). Conserva ese sistema y utiliza los paquetes oficiales disponibles; no hace falta instalar específicamente PHP 8.2.
 
@@ -12,18 +14,18 @@ El proyecto declara `php: ^8.2`, que admite PHP 8.5, y los requisitos PHP de las
 |---|---|
 | EC2 Ubuntu + Apache + PHP | Código PHP, CSS, JavaScript, configuración y sesiones. |
 | RDS for MySQL | Usuarios, catálogo, recursos, favoritos, historial y reseñas. |
-| ElastiCache for Redis OSS | Metadatos del catálogo durante cinco minutos. |
-| S3 privado | Portadas, tráileres y películas. |
+| Redis, opcional y no confirmado | Metadatos del catálogo durante cinco minutos, si lo incorporas después. |
+| S3 privado existente | Portadas y tráileres para la entrega. |
 
-El navegador accede a EC2 por HTTPS. EC2 accede a RDS y Redis por la red privada; firma las autorizaciones de S3 mediante su rol IAM. Las cargas y videos van directamente entre navegador y S3 usando enlaces firmados.
+El navegador accede a EC2 por HTTPS. EC2 accede a RDS por la red privada y firma las autorizaciones de S3 mediante su rol IAM. Las cargas y videos van directamente entre navegador y S3 usando enlaces firmados. Si incorporas Redis, puede estar en esa misma EC2 o en otro servidor privado.
 
-RDS, ElastiCache, S3 y la dirección pública de EC2 tienen su propia facturación. Consulta la estimación de tu región y los créditos de tu cuenta antes de crear los servicios; no presupongas que la tarea estará cubierta por una capa gratuita. [Precios RDS](https://aws.amazon.com/rds/mysql/pricing/) y [ElastiCache](https://aws.amazon.com/elasticache/pricing/).
+No hace falta agregar otro servicio de caché a los recursos que ya tienes. Revisa la facturación de tus recursos actuales y los créditos de tu cuenta. [Precios RDS](https://aws.amazon.com/rds/mysql/pricing/).
 
 ## 2. Revisar la EC2 y preparar la red
 
-En **EC2 → Instancias → tu instancia**, anota región, VPC, subred y grupo de seguridad. Conserva esa región y esa VPC para RDS y ElastiCache. La ruta de esta guía publica Apache directamente desde una EC2 con IP pública y salida a Internet; una instancia privada requiere otra entrada, por ejemplo un balanceador.
+En **EC2 → Instancias → tu instancia**, anota región, VPC, subred y grupo de seguridad. Comprueba la conectividad privada con tu RDS existente. La ruta de esta guía publica Apache directamente desde una EC2 con IP pública y salida a Internet; una instancia privada requiere otra entrada, por ejemplo un balanceador.
 
-En esa VPC, prepara dos subredes privadas en zonas de disponibilidad diferentes, con rangos que no se superpongan con los existentes. Úsalas para los grupos de subredes de RDS y ElastiCache. No necesitan una ruta pública para recibir las conexiones privadas de EC2. RDS exige normalmente subredes en al menos dos zonas incluso al crear una instancia Single-AZ. [Red de RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_VPC.WorkingWithRDSInstanceinaVPC.html).
+Tu RDS ya tiene un grupo de subredes: revísalo en lugar de crear otro servicio o cambiarlo sin necesidad. Para una instalación nueva de RDS, prepara un grupo con subredes privadas en al menos dos zonas. Redis instalado en la misma EC2 no necesita un grupo de subredes adicional. [Red de RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_VPC.WorkingWithRDSInstanceinaVPC.html).
 
 Crea o ajusta estos grupos de seguridad:
 
@@ -32,11 +34,15 @@ Crea o ajusta estos grupos de seguridad:
 | `classicflix-web` (EC2) | TCP 22 | Tu IP pública, con `/32`. |
 | `classicflix-web` | TCP 80 y 443 | Público para el sitio y la validación/redirect HTTPS. |
 | `classicflix-db` (RDS) | TCP 3306 | **Grupo** `classicflix-web`. |
-| `classicflix-cache` (Redis) | TCP 6379 | **Grupo** `classicflix-web`. |
+| Redis, solo si se añade en otro servidor | TCP 6379 | **Grupo** `classicflix-web`. |
 
-Para 3306 y 6379, selecciona como origen el identificador del grupo de EC2, no `0.0.0.0/0` ni tu IP doméstica. EC2 necesita salida a los servicios privados, DNS y HTTPS para S3 y las descargas. Si mantienes la salida predeterminada del grupo, no necesitas abrir una regla de entrada por cada conexión saliente. Revisa también los otros grupos ya asociados: sus permisos se suman. [Grupos de seguridad RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html).
+Para servicios en otro servidor, permite 3306/6379 desde el grupo de EC2, no desde `0.0.0.0/0`. Si Redis está en la misma EC2, utiliza `127.0.0.1` y no abras 6379 a Internet. EC2 necesita salida a los servicios privados, DNS y HTTPS para S3 y las descargas. Revisa también los otros grupos ya asociados: sus permisos se suman. [Grupos de seguridad RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Overview.RDSSecurityGroups.html).
 
-## 3. Crear RDS MySQL
+## 3. Reutilizar tu MySQL en RDS
+
+Como ya tienes RDS, no crees otra instancia. Anota su endpoint DNS, puerto, nombre de base, usuario y método de conexión. Comprueba el acceso desde EC2 y conserva cualquier dato existente. Los pasos siguientes se aplican solo si en otro entorno necesitas crear un RDS desde cero.
+
+**`tiendadigitaldb` identifica la instancia RDS, no necesariamente una base SQL.** Entra en esa instancia y abre **Conectividad y seguridad** para obtener el endpoint DNS y el puerto. Usa ese endpoint en `DB_HOST`. Dentro de la instancia, crea una base separada llamada `ClassicFlix` y usa ese nombre exacto en `DB_DATABASE`; no instales las tablas de ClassicFlix sobre la base de otro proyecto. No es necesario cambiar el identificador de RDS. [Conexión a RDS MySQL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ConnectToInstance.html).
 
 En **RDS → Databases → Create database**:
 
@@ -50,21 +56,23 @@ En **RDS → Databases → Create database**:
 
 El administrador de RDS es una cuenta de base de datos. Es diferente del administrador de la web, que crearás posteriormente por consola.
 
-## 4. Crear ElastiCache compatible con esta versión
+## 4. Redis opcional; iniciar sin caché
 
-En **ElastiCache → Redis OSS**, crea una implementación **basada en nodos** con configuración propia:
+Redis es un servidor de caché; ElastiCache es un servicio administrado de AWS que puede alojarlo. Ambos son diferentes de RDS, que aloja tu MySQL. Para esta entrega inicia con `REDIS_ENABLED=false`. Si luego quieres añadir Redis, las instrucciones siguientes explican la conexión. [Qué es ElastiCache](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/WhatIs.html).
 
-- Modo clúster **desactivado** (`Cluster mode disabled`).
-- VPC y grupo de subredes preparados; grupo de seguridad `classicflix-cache`.
-- Cifrado en tránsito activado y exigido; cifrado en reposo activado.
-- Control de acceso **AUTH Default User**, con un token/contraseña guardado en tu gestor.
-- Para una demostración, un nodo sin réplicas reduce recursos; una réplica y conmutación automática mejoran disponibilidad a cambio de más recursos.
+- Si Redis corre en la misma EC2, usa `REDIS_HOST=127.0.0.1` y el puerto de esa instalación.
+- Si corre en otro servidor, usa su dirección privada accesible desde EC2. `localhost` en EC2 no apunta al Redis de tu PC.
+- Configura `REDIS_PASSWORD` solo con la contraseña real de esa instalación, si exige autenticación.
+- Usa `REDIS_TLS=true` cuando ese servidor tenga TLS; para un Redis local sin TLS usa `false`.
+- Mantén `REDIS_DATABASE=0`. El cliente actual trabaja con una conexión Redis sin modo clúster.
 
-En esta entrega, el cliente utiliza una conexión Redis normal con contraseña. Otras configuraciones, como modo clúster, IAM o un usuario ACL distinto de `default`, necesitan adaptar el cliente/configuración. Usa el endpoint de escritura: **Primary endpoint** si hay réplicas, o el endpoint del nodo si solo hay uno. No uses el Reader endpoint, porque la aplicación también escribe la caché. [Creación](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/SubnetGroups.designing-cluster-pre.redis.html), [endpoints](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/Endpoints.html) y [AUTH](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/auth.html).
+También puedes ejecutar la web sin caché estableciendo `REDIS_ENABLED=false`; el catálogo consulta MySQL. El comando `console.php check` de esta versión es estricto con las integraciones: con Redis desactivado lo muestra como «sin verificar» y devuelve código 1, aunque la web pueda consultar MySQL. Esto no acredita una conexión Redis.
 
-## 5. Crear S3 y dar acceso a EC2
+La consigna compartida no exige caché, por lo que basta comprobar MySQL, S3 y las funciones de la web si decides dejar Redis desactivado. Su implementación permanece disponible para una incorporación posterior.
 
-1. En S3 crea un bucket de propósito general, con nombre único y en la misma región.
+## 5. Reutilizar S3 y dar acceso a EC2
+
+1. Selecciona el bucket que ya tienes; no necesitas otro. Anota su región para `AWS_REGION`.
 2. Mantén las cuatro opciones de **Block Public Access** y ACL desactivadas (`Bucket owner enforced`). Conserva cifrado SSE-S3 para usar las plantillas existentes.
 3. En IAM crea una política usando [iam-s3-policy.json](aws/iam-s3-policy.json), reemplazando las dos apariciones de `BUCKET_ELEGIDO` por tu nombre real.
 4. Crea un rol con entidad de confianza **AWS service → EC2** y adjunta esa política.
@@ -87,11 +95,30 @@ php -v
 php -m
 ```
 
-La consulta `apt-cache policy` debe mostrar candidatos instalables para esos paquetes; si alguno no tiene candidato, revisa los repositorios antes de continuar. Espera PHP 8.5 en una instalación estándar de Ubuntu 26.04 y comprueba las extensiones PDO MySQL, mbstring, fileinfo, curl y openssl. Instala los paquetes sin fijar una revisión antigua para recibir las actualizaciones disponibles. No instales MySQL Server ni Redis Server en EC2: usarás los servicios administrados. [PHP en Ubuntu](https://ubuntu.com/server/docs/how-to/web-services/install-php/).
+La consulta `apt-cache policy` debe mostrar candidatos instalables para esos paquetes; si alguno no tiene candidato, revisa los repositorios antes de continuar. Espera PHP 8.5 en una instalación estándar de Ubuntu 26.04 y comprueba las extensiones PDO MySQL, mbstring, fileinfo, curl y openssl. No necesitas instalar MySQL Server porque ya tienes RDS; tampoco necesitas Redis para esta ruta de despliegue. [PHP en Ubuntu](https://ubuntu.com/server/docs/how-to/web-services/install-php/).
 
 ## 7. Transferir el proyecto
 
-Si aún tienes cambios locales sin subir a un repositorio, prepara un paquete con los archivos necesarios. Desde **PowerShell en tu PC**, situado en la carpeta del proyecto:
+### Opción A: clonar desde GitHub
+
+El remoto configurado en el proyecto es `https://github.com/Test01-7/ClassicFlix.git`. Para una primera descarga, ejecuta en la terminal **de tu EC2 Ubuntu**:
+
+```bash
+sudo apt update
+sudo apt install git
+sudo install -d -o ubuntu -g www-data -m 2750 /var/www/Classicflix
+git clone https://github.com/Test01-7/ClassicFlix.git /var/www/Classicflix
+```
+
+La carpeta destino debe estar vacía para clonar. Si ya contiene una instalación, no la borres ni fuerces la descarga: revisa primero qué archivos y configuración tiene. Ejecuta Git y Composer con el usuario `ubuntu`, no con `sudo`. Si usas otro usuario de despliegue, sustituye `ubuntu` por ese usuario en la preparación del directorio.
+
+`git clone` obtiene lo que esté publicado en GitHub; no incluye cambios que solo estén en tu PC. Si el repositorio es privado, necesitarás autenticar el acceso mediante una clave SSH/deploy key o un token con acceso al repositorio; no incrustes tokens en la URL ni los compartas en el chat. [Clonación desde GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository).
+
+El repositorio completo irá en `/var/www/Classicflix`; Apache seguirá sirviendo **solo `/var/www/Classicflix/Frontend`**, nunca `.git`, `Backend`, `.env` ni el resto de la raíz.
+
+### Opción B: transferir un paquete sin GitHub
+
+Si aún tienes cambios locales sin subir al repositorio, puedes preparar un paquete con los archivos necesarios. Desde **PowerShell en tu PC**, situado en la carpeta del proyecto:
 
 ```powershell
 tar -czf classicflix-deploy.tar.gz Backend Frontend scripts docs composer.json composer.lock BaseDatos.sql .env.example README.md
@@ -105,10 +132,17 @@ De nuevo **en Ubuntu**, usando el usuario `ubuntu` de una instalación estándar
 ```bash
 sudo install -d -o ubuntu -g www-data -m 2750 /var/www/Classicflix
 tar -xzf ~/classicflix-deploy.tar.gz -C /var/www/Classicflix
+```
+
+### Instalar dependencias y preparar configuración
+
+Después de descargar el proyecto por **una** de las dos opciones, continúa en EC2. Apache, PHP y Composer deben estar instalados como indica el paso 6:
+
+```bash
 cd /var/www/Classicflix
 composer install --no-dev --prefer-dist --optimize-autoloader
 composer check-platform-reqs --no-dev
-cp .env.example .env
+test -f .env || cp .env.example .env
 chmod 640 .env
 sudo install -d -o ubuntu -g www-data -m 750 var
 sudo install -d -o www-data -g www-data -m 700 var/sessions
@@ -144,23 +178,35 @@ DB_SSL_CA=/etc/ssl/certs/rds-global-bundle.pem
 AWS_REGION=REGION_DE_TUS_RECURSOS
 AWS_BUCKET=NOMBRE_REAL_DEL_BUCKET
 
-REDIS_ENABLED=true
-REDIS_HOST=ENDPOINT_REAL_DE_ESCRITURA
-REDIS_PORT=6379
-REDIS_PASSWORD="TOKEN_AUTH_REDIS"
-REDIS_DATABASE=0
-REDIS_TLS=true
-REDIS_TIMEOUT=2
+REDIS_ENABLED=false
 CATALOG_CACHE_TTL=300
 ```
 
 Los endpoints no llevan `https://`, `tls://` ni puerto incluido. Deja vacíos `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` y `AWS_ENDPOINT`; EC2 obtendrá permisos de su rol. Este código no descarga contraseñas automáticamente de Secrets Manager ni genera tokens IAM para RDS/Redis.
 
+Con Redis desactivado no necesitas rellenar host ni contraseña de caché. Si lo incorporas después, cambia a `REDIS_ENABLED=true` y adapta host, puerto, contraseña y TLS al servidor según el paso 4.
+
 El uso de `DB_SSL_CA` exige validación del certificado del servidor; utiliza el endpoint DNS original de RDS. [Certificados RDS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/UsingWithRDS.SSL.html).
 
 ## 9. Crear tablas y administrador de ClassicFlix
 
-Con `DB_USERNAME` temporalmente configurado con el administrador RDS, y la base vacía `ClassicFlix` creada en el paso 3:
+### Si quieres importar la estructura desde HeidiSQL
+
+HeidiSQL se ejecuta en tu PC y envía el SQL a RDS. Puedes usar tu sesión RDS existente; comprueba que el servidor es el endpoint de `tiendadigitaldb`, no MySQL local. Si RDS solo acepta conexiones privadas desde EC2, crea una sesión **MariaDB/MySQL (SSH tunnel)**: en la configuración MySQL usa el endpoint RDS, puerto 3306 y credenciales SQL; en la pestaña SSH usa la IP pública de EC2, puerto 22, usuario `ubuntu`, tu clave privada local y un puerto local libre como 3307. HeidiSQL reciente admite `ssh.exe`; `plink.exe` puede requerir una clave en formato PPK. No envíes la clave ni las contraseñas al chat. [Conexiones y túneles HeidiSQL](https://www.heidisql.com/help.php#connecting).
+
+Para una base **nueva**:
+
+1. En una pestaña de consulta ejecuta `CREATE DATABASE IF NOT EXISTS ClassicFlix CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`.
+2. Actualiza el árbol y selecciona `ClassicFlix`.
+3. En **Archivo → Ejecutar archivo SQL** selecciona el `BaseDatos.sql` de este proyecto, con codificación **UTF-8**. Al confirmar se ejecutan las sentencias; el archivo también incluye `CREATE DATABASE IF NOT EXISTS ClassicFlix` y `USE ClassicFlix`.
+4. Comprueba que aparecen `Usuarios`, `Categorias`, `Peliculas`, `Recursos`, `Favoritos`, `Vistas`, `Resenas` y `Cargas`.
+5. Continúa en EC2 con `migrate` y `create-admin`, indicados a continuación: la migración añade las categorías iniciales y registra las versiones del esquema. El SQL por sí solo no crea una cuenta administrativa de la web ni carga videos.
+
+Si `ClassicFlix` ya contiene una instalación anterior, haz respaldo y utiliza la migración en lugar de importar el esquema nuevo sobre esa instalación. Las otras bases de la instancia RDS no deben borrarse ni seleccionarse como destino de las tablas. [Importación SQL en HeidiSQL](https://www.heidisql.com/help.php#importing).
+
+### Completar la instalación desde EC2
+
+Para una base nueva, con `DB_USERNAME` temporalmente configurado con una cuenta con permisos de migración y la base vacía `ClassicFlix` existente:
 
 ```bash
 cd /var/www/Classicflix
@@ -184,7 +230,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ClassicFlix.* TO 'classicflix_app'@'%';
 EXIT;
 ```
 
-El `%` corresponde a la cuenta SQL; la entrada de red sigue limitada al grupo de EC2. Cambia `.env` a `DB_USERNAME=classicflix_app` y su contraseña. Las futuras migraciones se ejecutan temporalmente con la cuenta que tenga permisos DDL, no desde la cuenta web. [Conexión MySQL TLS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ConnectToInstanceSSL.CLI.html).
+El `%` corresponde a la cuenta SQL; la entrada de red sigue limitada al grupo de EC2. Si ya tienes una cuenta de aplicación con estos permisos, reutilízala en lugar de crearla de nuevo. Cambia `.env` a esa cuenta y su contraseña. Las futuras migraciones se ejecutan temporalmente con la cuenta que tenga permisos DDL, no desde la cuenta web. [Conexión MySQL TLS](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ConnectToInstanceSSL.CLI.html).
 
 ## 10. Apache y HTTPS
 
@@ -241,9 +287,9 @@ php scripts/console.php check
 sudo -u www-data php /var/www/Classicflix/scripts/console.php check
 ```
 
-Ambos deben indicar MySQL, Redis y S3 disponibles. La segunda ejecución comprueba acceso bajo la identidad de Apache; un resultado positivo no prueba todavía CORS, archivos ni reproducción.
+Ambos deben indicar MySQL y S3 disponibles; Redis también si decides utilizarlo. Para la caché desactivada, ten en cuenta el comportamiento estricto descrito en el paso 4. La segunda ejecución comprueba acceso bajo la identidad de Apache; un resultado positivo no prueba todavía CORS, archivos ni reproducción.
 
-Abre `https://TU_DOMINIO/index.php?r=/catalogo` y verifica registro, login, navegación administrativa, reseñas y filtros. Registra un borrador y carga portada/tráiler desde el panel; añade la película, publica y comprueba reproducción como visitante y usuario. Prueba también una carga multipart y cancelación. La muestra `/preview` debe devolver 404 en producción. Revisa [aceptación](aceptacion.md) para el resto de comprobaciones reales.
+Abre `https://TU_DOMINIO/index.php?r=/catalogo` y verifica registro, login, favoritos, historial, administración, reseñas y filtros. Para cumplir la consigna compartida, registra un borrador, carga **solo portada y tráiler**, publica y comprueba reproducción HTML5 desde S3. No necesitas cargar películas completas; la ampliación aprobada previamente permanece como opción. Prueba también una carga multipart y cancelación. La muestra `/preview` debe devolver 404 en producción. Revisa [aceptación](aceptacion.md) para el resto de comprobaciones reales.
 
 Programa la limpieza diaria usando `sudo crontab -u www-data -e` y añade:
 
@@ -258,11 +304,42 @@ La hora corresponde a la zona del servidor/cron. Aplica también el ciclo de vid
 | Resultado | Revisar |
 |---|---|
 | MySQL no disponible | Endpoint, base existente, credenciales, CA, misma VPC y regla 3306 desde el grupo EC2. |
-| Redis no disponible | Endpoint de escritura, token AUTH, TLS, modo clúster desactivado y regla 6379 desde EC2. |
+| Redis no disponible | Host de tu servidor existente, contraseña/TLS si los utiliza y acceso local o privado desde EC2. No hace falta crear ElastiCache. |
 | S3 no disponible | Región/bucket, rol asociado a la instancia y nombre sustituido en la política IAM. |
 | Consola funciona y Apache falla | Lectura de `.env`, dependencias y CA; escritura en `var/sessions`; rol EC2 disponible para el proceso web. |
 | S3 disponible pero el navegador no carga | CORS para el origen exacto, encabezados/ETag, permisos y región. |
 | Login vuelve sin sesión | HTTPS real y `APP_URL`, cookies seguras y permisos de sesiones. |
 | Página de error 503 | Registro `/var/log/apache2/classicflix-error.log` y comprobación de conexiones. No publiques secretos ni enlaces firmados al compartir diagnósticos. |
+
+## 13. Actualizar el código desde GitHub
+
+Una actualización del repositorio no obliga a recrear Apache, RDS, el bucket, IAM, CORS ni la función Lambda y su desencadenador. Conserva el `.env` de EC2: está excluido del repositorio, contiene los valores de ese entorno y no debe sustituirse por `.env.example` durante una actualización. Los datos de RDS y objetos S3 permanecen en sus servicios.
+
+Primero sube los cambios del proyecto a GitHub. En la terminal de EC2:
+
+```bash
+cd /var/www/Classicflix
+git status --short
+git diff --name-only
+```
+
+Si aparecen archivos editados directamente en EC2, intégralos y guárdalos en el repositorio antes de continuar. Esto incluye los ajustes manuales de `S3Storage.php` y `MediaService.php` para miniaturas Lambda, si los aplicaste: bajar otra versión no debe hacerte perder esa integración. Conserva también una copia local de esos cambios antes de resolver conflictos. Los comandos siguientes presuponen que las modificaciones locales ya están resueltas.
+
+```bash
+git pull --ff-only
+composer install --no-dev --prefer-dist --optimize-autoloader
+```
+
+Ejecuta cada comando solo si el anterior terminó correctamente. `--ff-only` detiene la actualización si las ramas tienen cambios divergentes, para que puedas revisarlos. Composer instala las dependencias del archivo `composer.lock` de esa versión.
+
+Para el cambio que hace opcionales sinopsis/procedencia y permite portada con película sin tráiler no hay cambios de esquema: no necesitas importar SQL ni volver a crear cuentas. En otras versiones, si se anuncian cambios de esquema, haz respaldo de RDS y ejecuta `php scripts/console.php migrate`. Si se añaden variables, agrégalas al `.env` existente sin sustituirlo completo.
+
+Después de actualizar el código PHP puedes recargar Apache para liberar su caché de código:
+
+```bash
+sudo systemctl reload apache2
+```
+
+Recarga el navegador con Ctrl + Shift + R y comprueba login, edición, publicación y reproducción. Una función editada desde la consola Lambda se despliega por separado: `git pull` en EC2 no actualiza el código ni las capas de Lambda.
 
 Esta guía prepara una primera instalación con una sola EC2. Alta disponibilidad de la aplicación, despliegues automatizados y balanceadores quedan como ampliaciones; no son necesarios para ejecutar esta entrega académica.

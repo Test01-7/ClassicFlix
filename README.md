@@ -59,12 +59,12 @@ En producción usa `APP_ENV=production` y `APP_PREVIEW_ENABLED=false`.
 
 1. Crea un administrador por consola e inicia sesión con esa cuenta.
 2. Guarda los datos del contenido como borrador. Las duraciones se almacenan en **segundos**; revisa la unidad de cada campo del formulario.
-3. En edición, carga una portada y un tráiler e introduce la procedencia y referencia de derechos. La película completa es opcional y puede añadirse después.
-4. Con portada y tráiler verificados, cambia el estado a publicado y guarda.
+3. En archivos, carga una portada y al menos un video: tráiler o película completa. El enlace de origen y la referencia de derechos son opcionales. La sinopsis y la duración del tráiler también pueden dejarse vacías; una duración de tráiler vacía se guarda como 0 (sin especificar).
+4. Con portada y al menos un video verificados, cambia el estado a publicado y guarda. Puedes añadir el otro video después. Las películas completas mantienen el acceso con cuenta; el botón de tráiler aparece solo cuando existe ese archivo.
 
 Admite MP4 preparado para HTML5 (H.264 y audio AAC cuando exista) y portadas JPEG/PNG/WebP. No transcodifica videos. Límites configurables: 100 MiB por tráiler, 5 MiB por portada y 2 GiB por película. Los archivos van directamente del navegador a S3: **no hace falta elevar los límites de carga de PHP al tamaño de una película**; PHP recibe metadatos y solicitudes de control.
 
-Internet Archive y PDM permiten seleccionar archivos, pero su aparición allí no verifica automáticamente los derechos. Conserva la referencia de la versión elegida y revisa por separado música, subtítulos y portada.
+Internet Archive y PDM permiten seleccionar archivos, pero su aparición allí no verifica automáticamente los derechos. Puedes completar la referencia de la versión elegida al cargar el recurso; no es un campo obligatorio.
 
 ## Reseñas y valoración del público
 
@@ -114,7 +114,13 @@ La comprobación informa de MySQL, Redis y S3 sin imprimir secretos. Redis desha
 
 Consulta [instalación y migración](docs/instalacion.md), [S3 y EC2](docs/aws.md) y [pruebas de aceptación](docs/aceptacion.md). Las pruebas locales con dobles de servicios o SQLite no acreditan permisos ni reproducción contra AWS real.
 
-Para partir de tu instancia Ubuntu y usar servicios administrados, sigue [despliegue paso a paso con RDS y ElastiCache](docs/despliegue-ubuntu-rds.md).
+Para reutilizar tu EC2 Ubuntu, MySQL en RDS y S3, sigue [despliegue paso a paso sin exigir Redis ni ElastiCache](docs/despliegue-ubuntu-rds.md). Según la consigna compartida, la caché es opcional y la entrega puede limitar las cargas a tráileres y portadas.
+
+## Miniaturas automáticas con Lambda
+
+El código de la función está en `lambda/poster-thumbnail/`, con ejemplos de configuración y evento. PHP selecciona la miniatura privada generada en `miniaturas/v1/` cuando está disponible y usa la portada original mientras Lambda procesa. No requiere migraciones ni editar PHP con nano en EC2.
+
+Consulta la [guía de Lambda y miniaturas](docs/lambda-miniaturas.md) para generar los ZIP, desplegarlos desde **Lambda → Event Functions**, configurar permisos/desencadenador y actualizar EC2 desde GitHub. Guardar estas plantillas en Git no modifica AWS automáticamente; Lambda se despliega por separado.
 
 ## Pruebas locales
 

@@ -1,0 +1,14 @@
+{
+  "Records": [
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "us-east-2",
+      "eventName": "ObjectCreated:Put",
+      "s3": {
+        "bucket": { "name": "mi-primer-bucket-04-07-2006" },
+        "object": { "key": "classicflix/1/portada/0123456789abcdef0123456789abcdef.jpg" }
+      }
+    }
+  ]
+}

@@ -5,4 +5,6 @@
 /tools/composer-cache/
 /tests/.runtime/
 *.log
+__pycache__/
+*.py[cod]
 

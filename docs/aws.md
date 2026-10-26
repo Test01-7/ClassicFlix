@@ -2,7 +2,7 @@
 
 La guía prepara recursos para tu cuenta; el código no crea buckets, instancias ni servicios administrados. Sustituye `BUCKET_ELEGIDO`, `https://cine.ejemplo.com` y las rutas de ejemplo antes de aplicar plantillas.
 
-Para configurar todo desde una EC2 Ubuntu existente, sigue la [guía paso a paso con RDS y ElastiCache](despliegue-ubuntu-rds.md).
+Para reutilizar tus recursos, sigue la [guía con EC2, RDS y S3, con caché opcional](despliegue-ubuntu-rds.md). La consigna compartida exige MySQL y S3, pero no ElastiCache ni RDS como productos concretos; tu RDS ya satisface la parte MySQL. El ejemplo de despliegue comienza con Redis desactivado.
 
 ## Bucket y permisos
 
@@ -15,7 +15,9 @@ Para configurar todo desde una EC2 Ubuntu existente, sigue la [guía paso a paso
 
 Plantillas: [IAM](aws/iam-s3-policy.json), [CORS](aws/s3-cors.json), [ciclo de vida](aws/s3-lifecycle.json) y [Apache](aws/apache-classicflix.conf).
 
-IAM limita los objetos al prefijo `classicflix/` y permite HeadBucket mediante ListBucket. No concede s3:* ni cambios de políticas/ACL. Crea la confianza para `ec2.amazonaws.com` y asocia el instance profile desde IAM/EC2. En EC2 deja las claves vacías y usa el rol; en local usa perfil AWS o credenciales temporales con permisos equivalentes.
+IAM limita las cargas/lecturas originales al prefijo `classicflix/`, añade lectura de miniaturas generadas en `miniaturas/v1/` y permite HeadBucket mediante ListBucket. No concede s3:* ni cambios de políticas/ACL. Crea la confianza para `ec2.amazonaws.com` y asocia el instance profile desde IAM/EC2. En EC2 deja las claves vacías y usa el rol; en local usa perfil AWS o credenciales temporales con permisos equivalentes.
+
+Para reducir portadas automáticamente, consulta [Lambda y miniaturas](lambda-miniaturas.md). El código, configuración de referencia y permisos están versionados; el despliegue de la función y su capa se realiza desde la consola Lambda. Los permisos del rol Lambda son independientes de los del rol EC2.
 
 CORS permite GET/HEAD y PUT del navegador, incluyendo `If-None-Match`. Las cargas usan escrituras condicionales para impedir que reutilizar una autorización sobrescriba un objeto ya verificado; el navegador debe enviar los encabezados devueltos por PHP. Iniciar/completar/abortar multipart son operaciones del backend SDK; las credenciales AWS no llegan al navegador. CORS no otorga lectura: sin firma un objeto privado debe devolver AccessDenied.
 
@@ -48,7 +50,7 @@ Programa diariamente `php /ruta/Classicflix/scripts/console.php cleanup-uploads`
 
 Antes de dar por listo el despliegue:
 
-- Ejecuta `php scripts/console.php check` y exige éxito en MySQL, Redis y S3.
+- Ejecuta `php scripts/console.php check` y verifica MySQL y S3; Redis también si está habilitado. El comando actual devuelve código 1 cuando Redis está desactivado y lo reporta sin verificar: no confundirlo con un fallo de MySQL/S3 ni con una integración Redis probada.
 - Prueba cargas simples y multipart, cancelación y recuperación de una parte fallida.
 - Verifica reproducción con solicitudes Range, avance/retroceso y renovación de enlaces.
 - Abre un objeto sin firma y confirma el rechazo.

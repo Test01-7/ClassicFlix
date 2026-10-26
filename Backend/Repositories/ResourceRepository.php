@@ -41,7 +41,7 @@ final class ResourceRepository
 
     public function readyToPublish(int $movieId): bool
     {
-        $query = $this->pdo->prepare("SELECT COUNT(DISTINCT tipo) FROM Recursos WHERE pelicula_id = ? AND tipo IN ('portada', 'trailer')");
+        $query = $this->pdo->prepare("SELECT COUNT(DISTINCT CASE WHEN tipo = 'portada' THEN 'portada' WHEN tipo IN ('trailer', 'pelicula') THEN 'video' END) FROM Recursos WHERE pelicula_id = ?");
         $query->execute([$movieId]);
         return (int) $query->fetchColumn() === 2;
     }
